@@ -39,13 +39,21 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv(),
 )
 
-# Cache via Redis
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://redis:6379/1'),
+# Cache — use Redis if available, otherwise fall back to in-memory
+_redis_url = config('REDIS_URL', default='')
+if _redis_url:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _redis_url,
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
 
 # Production logging
 LOGGING = {
