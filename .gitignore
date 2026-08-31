@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Django
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+reports/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Reference frontend (not part of main project)
+nawi-ref/
+
+# Byte-compiled
+*.pyc
+
+# Logs
+*.log
+
+# Coverage
+htmlcov/
+.coverage
+.pytest_cache/

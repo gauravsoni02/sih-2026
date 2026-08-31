@@ -1,0 +1,92 @@
+{
+  "standard": "OIML R 76-1:2006",
+  "version": "1.0.0",
+  "description": "Non-automatic weighing instruments — Metrological and technical requirements — Tests",
+
+  "accuracy_classes": {
+    "I":    { "name": "Special",  "min_capacity_multiplier": 100, "n_min": 50000, "n_max": null },
+    "II":   { "name": "High",     "min_capacity_multiplier": 20,  "n_min": 5000,  "n_max": 100000 },
+    "III":  { "name": "Medium",   "min_capacity_multiplier": 20,  "n_min": 500,   "n_max": 10000 },
+    "IIII": { "name": "Ordinary", "min_capacity_multiplier": 10,  "n_min": 100,   "n_max": 1000 }
+  },
+
+  "mpe_table": {
+    "I": [
+      { "lower": 0, "upper": 50000,  "factor": "0.5" },
+      { "lower": 50000, "upper": 200000, "factor": "1.0" }
+    ],
+    "II": [
+      { "lower": 0, "upper": 5000,   "factor": "0.5" },
+      { "lower": 5000, "upper": 20000,  "factor": "1.0" },
+      { "lower": 20000, "upper": 100000, "factor": "1.5" }
+    ],
+    "III": [
+      { "lower": 0, "upper": 500,    "factor": "0.5" },
+      { "lower": 500, "upper": 2000,   "factor": "1.0" },
+      { "lower": 2000, "upper": 10000,  "factor": "1.5" }
+    ],
+    "IIII": [
+      { "lower": 0, "upper": 50,     "factor": "0.5" },
+      { "lower": 50, "upper": 200,    "factor": "1.0" },
+      { "lower": 200, "upper": 1000,   "factor": "1.5" }
+    ]
+  },
+
+  "verification": {
+    "subsequent_multiplier": "2"
+  },
+
+  "test_parameters": {
+    "eccentricity": {
+      "load_divisor": 3
+    },
+    "discrimination": {
+      "extra_load_factor": "1.4",
+      "min_d_mg": "5"
+    },
+    "creep": {
+      "total_drift_factor": "0.5",
+      "interval_drift_factor": "0.2"
+    },
+    "zero_return": {
+      "threshold_factor": "0.5"
+    },
+    "sensitivity": {
+      "extra_load_mpe_factor": "0.4",
+      "min_extra_load_mg": "1"
+    },
+    "half_division": {
+      "factor": "0.5",
+      "d_to_e_threshold": "0.2"
+    },
+    "repeatability": {
+      "min_readings": 2
+    },
+    "temperature_zero_drift": {
+      "I":       { "degrees_per_e": "1" },
+      "default": { "degrees_per_e": "5" }
+    }
+  },
+
+  "test_applicability": {
+    "tilt": {
+      "excluded_classes": ["I"]
+    },
+    "durability": {
+      "max_capacity_kg": "100"
+    }
+  },
+
+  "scale_intervals": {
+    "max_e_to_d_ratio": "10",
+    "applicable_classes": ["I", "II"]
+  },
+
+  "units": {
+    "mg": { "to_mg": "1",           "to_kg": "0.000001" },
+    "g":  { "to_mg": "1000",        "to_kg": "0.001" },
+    "kg": { "to_mg": "1000000",     "to_kg": "1" },
+    "t":  { "to_mg": "1000000000",  "to_kg": "1000" },
+    "ct": { "to_mg": "200",         "to_kg": "0.0002" }
+  }
+}

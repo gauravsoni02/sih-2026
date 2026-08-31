@@ -1,0 +1,32 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #ffffff;
+  color: #1a1a1a;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.alt-row td {
+  background: #fafafa !important;
+}
+
+.ant-table-thead > tr > th {
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  color: #666666 !important;
+  text-transform: none !important;
+}
+
+.ant-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.ant-menu-inline .ant-menu-item {
+  margin-block: 2px;
+}

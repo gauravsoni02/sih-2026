@@ -1,0 +1,150 @@
+{
+  "standard": "OIML R 76-2:2006",
+  "version": "1.0.0",
+  "description": "Non-automatic weighing instruments — Test procedures",
+
+  "evaluation_types": {
+    "type_evaluation": {
+      "name": "Type Evaluation",
+      "description": "Complete testing for type approval (OIML certificate)",
+      "verification_type": "initial",
+      "required_tests": [
+        "weighing_performance", "eccentricity", "repeatability",
+        "discrimination", "sensitivity", "tare", "creep",
+        "zero_return", "temperature", "tilt", "power_supply",
+        "durability", "span_stability", "zero_tracking"
+      ],
+      "weighing_performance": {
+        "min_test_points_per_zone": 5,
+        "must_include_boundary_points": true,
+        "must_include_min": true,
+        "must_include_max": true,
+        "directions": ["increasing", "decreasing"]
+      },
+      "repeatability": {
+        "min_repetitions": 10,
+        "test_loads_fractions_of_max": ["0.5", "1.0"]
+      },
+      "discrimination": {
+        "test_loads_fractions_of_max": ["0.0", "0.5", "1.0"],
+        "use_min_for_zero_fraction": true
+      },
+      "eccentricity": {
+        "positions_rectangular": ["center", "front_left", "front_right", "rear_left", "rear_right"],
+        "positions_circular": ["center", "q1", "q2", "q3", "q4"]
+      }
+    },
+    "initial_verification": {
+      "name": "Initial Verification",
+      "description": "Testing for initial verification of individual instruments",
+      "verification_type": "initial",
+      "required_tests": [
+        "weighing_performance", "eccentricity", "repeatability", "discrimination"
+      ],
+      "weighing_performance": {
+        "min_test_points_per_zone": 3,
+        "must_include_boundary_points": true,
+        "must_include_min": true,
+        "must_include_max": true,
+        "directions": ["increasing", "decreasing"]
+      },
+      "repeatability": {
+        "min_repetitions": 3,
+        "test_loads_fractions_of_max": ["0.5", "1.0"]
+      },
+      "discrimination": {
+        "test_loads_fractions_of_max": ["0.0", "0.5", "1.0"],
+        "use_min_for_zero_fraction": true
+      },
+      "eccentricity": {
+        "positions_rectangular": ["center", "front_left", "front_right", "rear_left", "rear_right"],
+        "positions_circular": ["center", "q1", "q2", "q3", "q4"]
+      }
+    },
+    "subsequent_verification": {
+      "name": "Subsequent Verification",
+      "description": "Testing for in-service (subsequent) verification",
+      "verification_type": "subsequent",
+      "required_tests": [
+        "weighing_performance", "repeatability"
+      ],
+      "weighing_performance": {
+        "min_test_points_per_zone": 2,
+        "must_include_boundary_points": true,
+        "must_include_min": true,
+        "must_include_max": true,
+        "directions": ["increasing"]
+      },
+      "repeatability": {
+        "min_repetitions": 3,
+        "test_loads_fractions_of_max": ["1.0"]
+      }
+    }
+  },
+
+  "environmental_conditions": {
+    "reference_temperature_c": "20",
+    "temperature_tolerance_c": "5",
+    "max_relative_humidity_pct": "80",
+    "min_atmospheric_pressure_hpa": "860",
+    "max_atmospheric_pressure_hpa": "1060",
+    "stabilization_time_hours": "2",
+    "warm_up_time_minutes": "30",
+    "max_temp_variation_during_test_c": "1"
+  },
+
+  "preconditioning": {
+    "temperature_conditioning_hours": "2",
+    "temperature_recovery_hours": "1",
+    "damp_heat_duration_days": "2",
+    "damp_heat_humidity_pct": "85"
+  },
+
+  "test_load_selection": {
+    "must_include_min": true,
+    "must_include_max": true,
+    "must_include_zone_boundaries": true,
+    "round_to_nearest_e": true
+  },
+
+  "test_sequence": [
+    "weighing_performance",
+    "eccentricity",
+    "repeatability",
+    "discrimination",
+    "sensitivity",
+    "tare",
+    "creep",
+    "zero_return",
+    "temperature",
+    "tilt",
+    "power_supply",
+    "durability",
+    "span_stability",
+    "zero_tracking"
+  ],
+
+  "report_format": {
+    "required_sections": [
+      "header",
+      "instrument_details",
+      "environmental_conditions",
+      "test_observations",
+      "compliance_summary",
+      "overall_verdict",
+      "signatories"
+    ],
+    "header_fields": [
+      "lab_name", "accreditation_number", "report_number", "date"
+    ],
+    "instrument_fields": [
+      "manufacturer", "model", "serial_number", "accuracy_class",
+      "max_capacity", "min_capacity", "verification_scale_interval_e",
+      "actual_scale_interval_d", "number_of_intervals_n",
+      "tare_device_type", "max_safe_load"
+    ],
+    "signatory_roles": ["tested_by", "checked_by", "approved_by"],
+    "report_number_format": "{prefix}/{lab_code}/{year}/{sequence}",
+    "software_identification_required": true
+  }
+}
