@@ -17,7 +17,8 @@ env/
 db.sqlite3
 media/
 staticfiles/
-reports/
+# Generated report files (backend only)
+backend/reports/
 
 # Environment
 .env

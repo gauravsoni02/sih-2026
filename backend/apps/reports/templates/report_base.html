@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test Report — {{ report_number }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 18mm 25mm 18mm;
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #666;
+    }
+    @bottom-right {
+      content: "{{ report_number }}";
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    color: #1a1a1a;
+    line-height: 1.4;
+  }
+  h1 { font-size: 18pt; font-weight: 700; margin-bottom: 4pt; }
+  h2 { font-size: 12pt; font-weight: 600; margin: 16pt 0 8pt 0; border-bottom: 1px solid #ccc; padding-bottom: 3pt; }
+  h3 { font-size: 10pt; font-weight: 600; margin: 10pt 0 4pt 0; }
+
+  .cover { text-align: center; page-break-after: always; padding-top: 100pt; }
+  .cover h1 { font-size: 22pt; margin-bottom: 8pt; }
+  .cover .subtitle { font-size: 13pt; color: #444; margin-bottom: 40pt; }
+  .cover .lab-name { font-size: 14pt; font-weight: 600; margin-bottom: 4pt; }
+  .cover .accreditation { font-size: 10pt; color: #666; margin-bottom: 40pt; }
+  .cover .meta-table { margin: 0 auto; text-align: left; }
+  .cover .meta-table td { padding: 3pt 12pt; font-size: 10pt; }
+  .cover .meta-table td:first-child { color: #666; font-weight: 500; }
+
+  .kv-grid { display: flex; flex-wrap: wrap; gap: 0; }
+  .kv-item { width: 50%; padding: 3pt 0; display: flex; }
+  .kv-label { width: 160pt; color: #666; font-weight: 500; flex-shrink: 0; }
+  .kv-value { color: #1a1a1a; }
+
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 6pt 0 12pt 0;
+    font-size: 9pt;
+  }
+  table.data th {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 4pt 6pt;
+    text-align: left;
+    font-weight: 600;
+    font-size: 8.5pt;
+  }
+  table.data td {
+    border: 1px solid #ddd;
+    padding: 3pt 6pt;
+  }
+  table.data td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: "Courier New", monospace;
+    font-size: 9pt;
+  }
+  .pass { color: #389e0d; font-weight: 600; }
+  .fail { color: #cf1322; font-weight: 600; }
+
+  .verdict-box {
+    text-align: center;
+    padding: 12pt;
+    margin: 16pt 0;
+    border: 2px solid;
+    font-size: 14pt;
+    font-weight: 700;
+  }
+  .verdict-pass { border-color: #389e0d; color: #389e0d; }
+  .verdict-fail { border-color: #cf1322; color: #cf1322; }
+
+  .signatory-grid { display: flex; gap: 20pt; margin-top: 30pt; }
+  .signatory-block { flex: 1; border-top: 1px solid #1a1a1a; padding-top: 6pt; }
+  .signatory-block .role { font-weight: 600; font-size: 9pt; }
+  .signatory-block .name { font-size: 9pt; color: #666; margin-top: 2pt; }
+  .signatory-block .date { font-size: 8pt; color: #999; margin-top: 2pt; }
+
+  .section { page-break-inside: avoid; }
+  .page-break { page-break-before: always; }
+
+  .summary-table { margin: 8pt 0; }
+  .summary-table td { padding: 3pt 8pt; }
+  .summary-table td:first-child { font-weight: 500; }
+
+  .footer-note { font-size: 8pt; color: #999; margin-top: 20pt; border-top: 1px solid #ddd; padding-top: 6pt; }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <div class="lab-name">{{ lab_name }}</div>
+  <div class="accreditation">Accreditation No: {{ accreditation_number }}</div>
+  {% if lab_address %}<div style="font-size: 9pt; color: #666; margin-bottom: 30pt;">{{ lab_address }}</div>{% endif %}
+
+  <h1>Test Report</h1>
+  <div class="subtitle">Non-Automatic Weighing Instrument<br>as per OIML R 76-1:2006</div>
+
+  <table class="meta-table">
+    <tr><td>Report Number</td><td><strong>{{ report_number }}</strong></td></tr>
+    <tr><td>Date of Test</td><td>{{ session_date }}</td></tr>
+    <tr><td>Report Version</td><td>{{ version }}</td></tr>
+    <tr><td>Evaluation Type</td><td>{{ evaluation_type_label }}</td></tr>
+    <tr><td>Verification Type</td><td>{{ verification_type_label }}</td></tr>
+  </table>
+</div>
+
+<!-- INSTRUMENT DETAILS -->
+<h2>1. Instrument Under Test</h2>
+<div class="kv-grid">
+  <div class="kv-item"><span class="kv-label">Manufacturer</span><span class="kv-value">{{ instrument.manufacturer }}</span></div>
+  <div class="kv-item"><span class="kv-label">Model</span><span class="kv-value">{{ instrument.model_name }}</span></div>
+  <div class="kv-item"><span class="kv-label">Serial Number</span><span class="kv-value">{{ instrument.serial_number }}</span></div>
+  <div class="kv-item"><span class="kv-label">Accuracy Class</span><span class="kv-value">{{ instrument.accuracy_class }}</span></div>
+  <div class="kv-item"><span class="kv-label">Max Capacity (Max)</span><span class="kv-value">{{ instrument.max_capacity }} {{ instrument.unit }}</span></div>
+  <div class="kv-item"><span class="kv-label">Min Capacity (Min)</span><span class="kv-value">{{ instrument.min_capacity }} {{ instrument.unit }}</span></div>
+  <div class="kv-item"><span class="kv-label">Verification Interval (e)</span><span class="kv-value">{{ instrument.verification_scale_interval_e }} {{ instrument.unit }}</span></div>
+  <div class="kv-item"><span class="kv-label">Actual Scale Interval (d)</span><span class="kv-value">{{ instrument.actual_scale_interval_d }} {{ instrument.unit }}</span></div>
+  <div class="kv-item"><span class="kv-label">Number of Intervals (n)</span><span class="kv-value">{{ instrument.num_scale_intervals_n }}</span></div>
+  <div class="kv-item"><span class="kv-label">Tare Device</span><span class="kv-value">{{ instrument.tare_device_type }}</span></div>
+  {% if instrument.max_safe_load %}
+  <div class="kv-item"><span class="kv-label">Max Safe Load (Lim)</span><span class="kv-value">{{ instrument.max_safe_load }} {{ instrument.unit }}</span></div>
+  {% endif %}
+  {% if instrument.is_multi_interval %}
+  <div class="kv-item"><span class="kv-label">Multi-Interval</span><span class="kv-value">Yes</span></div>
+  {% endif %}
+</div>
+
+<!-- ENVIRONMENTAL CONDITIONS -->
+<h2>2. Environmental Conditions</h2>
+<div class="kv-grid">
+  {% if temperature_start is not None %}
+  <div class="kv-item"><span class="kv-label">Temperature (Start)</span><span class="kv-value">{{ temperature_start }} °C</span></div>
+  {% endif %}
+  {% if temperature_end is not None %}
+  <div class="kv-item"><span class="kv-label">Temperature (End)</span><span class="kv-value">{{ temperature_end }} °C</span></div>
+  {% endif %}
+  {% if humidity is not None %}
+  <div class="kv-item"><span class="kv-label">Relative Humidity</span><span class="kv-value">{{ humidity }} %</span></div>
+  {% endif %}
+  {% if barometric_pressure is not None %}
+  <div class="kv-item"><span class="kv-label">Barometric Pressure</span><span class="kv-value">{{ barometric_pressure }} hPa</span></div>
+  {% endif %}
+</div>
+
+<!-- TEST RESULTS -->
+<h2>3. Test Results</h2>
+
+{% for test in test_sections %}
+<div class="section">
+  <h3>3.{{ forloop.counter }} {{ test.title }}</h3>
+
+  {% if test.results %}
+  <table class="data">
+    <thead>
+      <tr>
+        {% for col in test.columns %}
+        <th>{{ col }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in test.results %}
+      <tr>
+        {% for cell in row %}
+        <td class="{% if cell.numeric %}num{% endif %} {% if cell.status == 'pass' %}pass{% elif cell.status == 'fail' %}fail{% endif %}">{{ cell.value }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color: #999; font-style: italic;">No observations recorded for this test.</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- COMPLIANCE SUMMARY -->
+<div class="page-break"></div>
+<h2>4. Compliance Summary</h2>
+
+<table class="data summary-table">
+  <thead>
+    <tr>
+      <th>Test</th>
+      <th>Result</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in compliance_summary %}
+    <tr>
+      <td>{{ item.test_name }}</td>
+      <td class="{% if item.status == 'pass' %}pass{% elif item.status == 'fail' %}fail{% endif %}">{{ item.status_label }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- OVERALL VERDICT -->
+<div class="verdict-box {% if overall_verdict == 'pass' %}verdict-pass{% else %}verdict-fail{% endif %}">
+  {% if overall_verdict == 'pass' %}
+  CONFORMS to OIML R 76-1:2006
+  {% else %}
+  DOES NOT CONFORM to OIML R 76-1:2006
+  {% endif %}
+</div>
+
+<!-- SIGNATORIES -->
+<h2>5. Signatories</h2>
+<div class="signatory-grid">
+  <div class="signatory-block">
+    <div class="role">Tested by</div>
+    <div class="name">{{ engineer_name }}</div>
+    <div class="date">Date: {{ session_date }}</div>
+  </div>
+  <div class="signatory-block">
+    <div class="role">Checked by</div>
+    <div class="name">{{ checked_by_name|default:"________________" }}</div>
+    <div class="date">Date: ________________</div>
+  </div>
+  <div class="signatory-block">
+    <div class="role">Approved by</div>
+    <div class="name">{{ approved_by_name|default:"________________" }}</div>
+    <div class="date">Date: {% if approved_at %}{{ approved_at }}{% else %}________________{% endif %}</div>
+  </div>
+</div>
+
+<div class="footer-note">
+  This report was generated by the NAWI Test Report Generator v{{ software_version|default:"1.0" }}.<br>
+  Standard reference: OIML R 76-1:2006 — Non-automatic weighing instruments, Part 1: Metrological and technical requirements — Tests.
+</div>
+
+</body>
+</html>
