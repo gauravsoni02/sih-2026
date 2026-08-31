@@ -1,7 +1,7 @@
 from .base import *  # noqa: F401, F403
 
 import dj_database_url
-from decouple import config
+from decouple import config, Csv
 
 DEBUG = False
 
@@ -9,7 +9,7 @@ DATABASES = {
     'default': dj_database_url.parse(config('DATABASE_URL')),
 }
 
-ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='', cast=Csv)
+ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='', cast=Csv())
 
 # Security
 SECURE_BROWSER_XSS_FILTER = True
@@ -36,7 +36,7 @@ STORAGES = {
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
     default='',
-    cast=Csv,
+    cast=Csv(),
 )
 
 # Cache via Redis
