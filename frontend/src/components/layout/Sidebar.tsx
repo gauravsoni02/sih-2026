@@ -31,9 +31,12 @@ export default function Sidebar() {
   const logout = useAuthStore((s) => s.logout);
   const { sidebarCollapsed, setSidebarCollapsed } = useUiStore();
 
-  const selectedKey = menuItems.find((item) =>
-    item.key === '/' ? location.pathname === '/' : location.pathname.startsWith(item.key)
-  )?.key || '/';
+  // Prefer an exact route match so /reports/search selects Search rather than Reports.
+  const selectedKey = menuItems.find((item) => item.key === location.pathname)?.key
+    ?? menuItems.find((item) =>
+      item.key !== '/' && location.pathname.startsWith(`${item.key}/`)
+    )?.key
+    ?? '/';
 
   return (
     <div
