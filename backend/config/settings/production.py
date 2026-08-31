@@ -23,9 +23,14 @@ SECURE_HSTS_PRELOAD = True
 SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Static files served by nginx
+# Static files served by WhiteNoise
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # noqa: F405
 MEDIA_ROOT = BASE_DIR / 'media'  # noqa: F405
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 # CORS — restrict in production
 CORS_ALLOWED_ORIGINS = config(
