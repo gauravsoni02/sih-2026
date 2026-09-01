@@ -57,21 +57,6 @@ class TestSessionViewSet(viewsets.ModelViewSet):
             return TestSessionListSerializer
         return TestSessionSerializer
 
-    def perform_create(self, serializer) -> None:
-        user = self.request.user
-        save_kwargs = {}
-        if 'engineer' not in serializer.validated_data:
-            save_kwargs['engineer'] = user
-        if 'laboratory' not in serializer.validated_data or serializer.validated_data['laboratory'] is None:
-            if user.laboratory:
-                save_kwargs['laboratory'] = user.laboratory
-            else:
-                from apps.laboratory.models import Laboratory
-                default_lab = Laboratory.objects.first()
-                if default_lab:
-                    save_kwargs['laboratory'] = default_lab
-        serializer.save(**save_kwargs)
-
     def perform_destroy(self, instance: TestSession) -> None:
         instance.soft_delete()
 
