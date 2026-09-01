@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -31,6 +32,61 @@ DEFAULT_REMARKS = [
     'Reference standards used are traceable to National / International '
     'Standards.',
 ]
+
+
+def build_uncertainty_budget(session) -> dict[str, Any] | None:
+    """Uncertainty budget at the highest tested load, for the certificate.
+
+    Returns None when the session has no usable weighing result.
+    """
+    from apps.engine.uncertainty import (
+        compute_uncertainty_budget,
+        repeatability_std_dev,
+    )
+
+    weighing = [
+        r for r in session.results.filter(
+            test_type='weighing_performance', is_deleted=False,
+        )
+        if r.mpe_applicable is not None and r.test_point_load is not None
+    ]
+    if not weighing:
+        return None
+    worst = max(weighing, key=lambda r: r.test_point_load)
+
+    groups: dict = {}
+    for obs in session.observations.filter(
+        test_type='repeatability', is_deleted=False,
+    ):
+        if obs.indicated_value is not None:
+            groups.setdefault(obs.test_point_load, []).append(obs.indicated_value)
+    rep_std = max(
+        (repeatability_std_dev(readings) for readings in groups.values()),
+        default=None,
+    )
+
+    budget = compute_uncertainty_budget(
+        d=session.instrument.actual_scale_interval_d,
+        mpe=worst.mpe_applicable,
+        rep_std_dev=rep_std if rep_std is not None else Decimal('0'),
+    )
+    return {
+        'load': worst.test_point_load,
+        'unit': session.instrument.unit,
+        'components': [
+            ('Repeatability of the instrument (Type A)',
+             budget['u_repeatability']),
+            ('Rounding of indication at zero, d/(2*sqrt(3))',
+             budget['u_resolution_zero']),
+            ('Rounding of indication at load, d/(2*sqrt(3))',
+             budget['u_resolution_load']),
+            ('Reference standard weights, (MPE/3)/sqrt(3)',
+             budget['u_reference_weights']),
+        ],
+        'u_combined': budget['u_combined'],
+        'k': budget['k'],
+        'expanded': budget['expanded'],
+    }
 
 
 def _build_report_context(report) -> dict[str, Any]:

@@ -90,6 +90,7 @@ export interface TestResult {
   test_point_load: string | null;
   computed_error: string;
   mpe_applicable: string;
+  expanded_uncertainty?: string | null;
   compliance_status: ComplianceStatus;
   position?: string;
   trial_number?: number;

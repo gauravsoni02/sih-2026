@@ -97,6 +97,7 @@ export interface ReportPreviewData {
     test_point_load: string | null;
     computed_error: string | null;
     mpe_applicable: string | null;
+    expanded_uncertainty?: string | null;
     compliance_status: string;
     position: string;
     trial_number: number;

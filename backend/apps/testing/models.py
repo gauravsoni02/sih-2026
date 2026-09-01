@@ -116,6 +116,10 @@ class TestResult(TimeStampedModel):
     mpe_applicable = models.DecimalField(
         max_digits=15, decimal_places=6, null=True, blank=True
     )
+    expanded_uncertainty = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True,
+        help_text='Expanded measurement uncertainty U (k=2)',
+    )
     compliance_status = models.CharField(
         max_length=20, choices=ComplianceStatus.choices
     )

@@ -403,7 +403,7 @@ def _build_weighing_performance(doc, results, unit, section_label):
 
         headers = ['Sr No', f'Test Point ({unit})', f'Reference Wt ({unit})',
                    f'Indicated ({unit})', f'Error ({unit})',
-                   f'MPE (±{unit})', 'Result']
+                   f'MPE (±{unit})', f'U ±{unit} (k=2)', 'Result']
         table = doc.add_table(rows=1, cols=len(headers))
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         hdr = table.rows[0]
@@ -417,6 +417,8 @@ def _build_weighing_performance(doc, results, unit, section_label):
             indicated = _format_decimal(obs.indicated_value if obs else None)
             ref_val = _format_decimal(obs.reference_value if obs else None)
             mpe_str = f'±{_format_decimal(r.mpe_applicable)}' if r.mpe_applicable else '—'
+            uncertainty = getattr(r, 'expanded_uncertainty', None)
+            u_str = f'±{_format_decimal(uncertainty)}' if uncertainty else '—'
 
             _write_cell(row.cells[0], str(idx), mono=True)
             _write_cell(row.cells[1], _format_decimal(r.test_point_load), mono=True)
@@ -424,7 +426,8 @@ def _build_weighing_performance(doc, results, unit, section_label):
             _write_cell(row.cells[3], indicated, mono=True)
             _write_cell(row.cells[4], _format_decimal(r.computed_error), mono=True)
             _write_cell(row.cells[5], mpe_str, mono=True)
-            _write_status_cell(row.cells[6], r.compliance_status)
+            _write_cell(row.cells[6], u_str, mono=True)
+            _write_status_cell(row.cells[7], r.compliance_status)
 
         _apply_alternating_shading(table)
         _set_table_borders(table)

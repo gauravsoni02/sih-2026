@@ -68,6 +68,7 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
                 'test_point_load': str(r.test_point_load) if r.test_point_load else None,
                 'computed_error': str(r.computed_error) if r.computed_error else None,
                 'mpe_applicable': str(r.mpe_applicable) if r.mpe_applicable else None,
+                'expanded_uncertainty': str(r.expanded_uncertainty) if r.expanded_uncertainty else None,
                 'compliance_status': r.compliance_status,
                 'position': r.position,
                 'trial_number': r.trial_number,

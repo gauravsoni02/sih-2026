@@ -20,6 +20,11 @@ from apps.engine.calculations import (
 from apps.engine.compliance import overall_verdict
 from apps.engine.constants import ComplianceStatus, SessionStatus, TestType
 from apps.engine.mpe import get_mpe, get_mpe_multi_interval
+from apps.engine.uncertainty import (
+    compute_uncertainty_budget,
+    repeatability_std_dev,
+    round_uncertainty,
+)
 from apps.engine.test_procedures import (
     generate_discrimination_loads,
     generate_repeatability_loads,
@@ -220,6 +225,22 @@ def _get_mpe_for_instrument(
     )
 
 
+def _session_repeatability_std_dev(session) -> Decimal:
+    """Worst-case repeatability std dev across the session's repeatability
+    trials, used as the Type A component of the uncertainty budget."""
+    rep_obs = session.observations.filter(
+        test_type=TestType.REPEATABILITY, is_deleted=False,
+    )
+    groups: dict[Decimal, list[Decimal]] = {}
+    for obs in rep_obs:
+        if obs.indicated_value is not None:
+            groups.setdefault(obs.test_point_load, []).append(obs.indicated_value)
+    worst = Decimal('0')
+    for readings in groups.values():
+        worst = max(worst, repeatability_std_dev(readings))
+    return worst
+
+
 def _calculate_test_type(
     test_type: str, observations, instrument, verification_type: str
 ) -> list[TestResult]:
@@ -227,6 +248,8 @@ def _calculate_test_type(
     session = observations[0].session
 
     if test_type == TestType.WEIGHING_PERFORMANCE:
+        rep_std = _session_repeatability_std_dev(session)
+        d = instrument.actual_scale_interval_d
         for obs in observations:
             load = obs.test_point_load
             try:
@@ -241,10 +264,12 @@ def _calculate_test_type(
                 continue
             error = compute_error(obs.indicated_value, load, obs.correction)
             compliance = check_error_compliance(error, mpe)
+            budget = compute_uncertainty_budget(d=d, mpe=mpe, rep_std_dev=rep_std)
             results.append(TestResult(
                 session=session, test_type=test_type, observation=obs,
                 test_point_load=load, computed_error=error,
                 mpe_applicable=mpe, compliance_status=compliance,
+                expanded_uncertainty=round_uncertainty(budget['expanded'], d),
             ))
 
     elif test_type == TestType.ECCENTRICITY:

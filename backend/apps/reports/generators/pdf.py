@@ -8,7 +8,7 @@ from django.conf import settings
 from django.template.loader import render_to_string
 
 from apps.engine.constants import ComplianceStatus, TestType
-from apps.reports.generators import _build_report_context
+from apps.reports.generators import _build_report_context, build_uncertainty_budget
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ def generate_pdf(report) -> str:
     results_qs = report.session.results.all()
     context['test_sections'] = _build_test_sections(results_qs)
     context['compliance_summary'] = _build_compliance_summary(results_qs)
+    context['uncertainty_budget'] = build_uncertainty_budget(report.session)
 
     storage_dir = Path(settings.REPORT_STORAGE_PATH)
     storage_dir.mkdir(parents=True, exist_ok=True)
@@ -784,6 +785,53 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         section_num += 1
 
     # ===================================================================
+    # Measurement Uncertainty Budget
+    # ===================================================================
+    budget = context.get('uncertainty_budget')
+    if budget:
+        budget_flowables: list = []
+        budget_flowables.append(Paragraph(
+            f'{section_num}. Measurement Uncertainty', sty_section))
+        budget_flowables.append(HRFlowable(
+            width='100%', thickness=0.5, color=CLR_RULE,
+            spaceAfter=4, spaceBefore=0,
+        ))
+        budget_flowables.append(Paragraph(
+            f'Uncertainty budget evaluated at the highest tested load '
+            f'({_format_decimal(budget["load"])} {budget["unit"]}), '
+            f'in accordance with EURAMET cg-18 principles:',
+            sty_cell,
+        ))
+        budget_flowables.append(Spacer(1, 4))
+
+        budget_rows = [[
+            Paragraph('<b>Uncertainty Component</b>', sty_cell_center_bold),
+            Paragraph(f'<b>Standard Uncertainty ({budget["unit"]})</b>',
+                      sty_cell_center_bold),
+        ]]
+        for name, value in budget['components']:
+            budget_rows.append([
+                Paragraph(name, sty_cell),
+                Paragraph(f'{value:.6f}', sty_cell_center),
+            ])
+        budget_rows.append([
+            Paragraph('<b>Combined standard uncertainty u<sub>c</sub></b>', sty_cell),
+            Paragraph(f'<b>{budget["u_combined"]:.6f}</b>', sty_cell_center),
+        ])
+        budget_rows.append([
+            Paragraph(f'<b>Expanded uncertainty U (k={budget["k"]}, ~95%)</b>',
+                      sty_cell),
+            Paragraph(f'<b>&plusmn;{budget["expanded"]:.6f}</b>', sty_cell_center),
+        ])
+        budget_tbl = Table(
+            budget_rows, colWidths=[FRAME_W * 0.62, FRAME_W * 0.38])
+        budget_tbl.setStyle(TableStyle(_base_table_style(len(budget_rows))))
+        budget_flowables.append(budget_tbl)
+        budget_flowables.append(Spacer(1, 10))
+        story.append(KeepTogether(budget_flowables))
+        section_num += 1
+
+    # ===================================================================
     # LAST PAGE -- Conclusion + Signatures
     # ===================================================================
     story.append(PageBreak())
@@ -985,6 +1033,7 @@ def _add_weighing_table(
         Paragraph('<b>Indicated Value</b>', sty_hdr),
         Paragraph('<b>Error</b>', sty_hdr),
         Paragraph(u'<b>MPE (±)</b>', sty_hdr),
+        Paragraph(u'<b>U (±) k=2</b>', sty_hdr),
         Paragraph('<b>Result</b>', sty_hdr),
     ]
     rows = [header]
@@ -993,6 +1042,7 @@ def _add_weighing_table(
         indicated = _format_decimal(obs.indicated_value) if obs else '—'
         ref_val = _format_decimal(obs.reference_value) if obs else \
             _format_decimal(r.test_point_load)
+        uncertainty = getattr(r, 'expanded_uncertainty', None)
         rows.append([
             Paragraph(str(idx), sty_center),
             Paragraph(_format_decimal(r.test_point_load), sty_center),
@@ -1003,17 +1053,21 @@ def _add_weighing_table(
                 f'±{_format_decimal(r.mpe_applicable)}'
                 if r.mpe_applicable else '—',
                 sty_center),
+            Paragraph(
+                f'±{_format_decimal(uncertainty)}' if uncertainty else '—',
+                sty_center),
             status_para_fn(r.compliance_status),
         ])
 
     col_widths = [
-        frame_w * 0.07,
-        frame_w * 0.14,
-        frame_w * 0.16,
-        frame_w * 0.16,
+        frame_w * 0.06,
+        frame_w * 0.13,
         frame_w * 0.14,
         frame_w * 0.14,
-        frame_w * 0.19,
+        frame_w * 0.13,
+        frame_w * 0.13,
+        frame_w * 0.13,
+        frame_w * 0.14,
     ]
     tbl = Table(rows, colWidths=col_widths)
     tbl.setStyle(TableStyle(base_style_fn(len(rows))))

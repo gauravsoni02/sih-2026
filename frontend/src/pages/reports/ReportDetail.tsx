@@ -444,6 +444,7 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
         const hasLoad = typeResults.some((r) => r.test_point_load != null);
         const hasPosition = typeResults.some((r) => r.position);
         const hasTrial = typeResults.some((r) => r.trial_number != null);
+        const hasUncertainty = typeResults.some((r) => r.expanded_uncertainty != null);
 
         return (
           <div key={testType} style={{ marginBottom: 16, pageBreakInside: 'avoid' }}>
@@ -479,6 +480,11 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
                     <th style={{ ...thStyle, textAlign: 'right' }}>
                       MPE (&plusmn;{instrument.unit})
                     </th>
+                    {hasUncertainty && (
+                      <th style={{ ...thStyle, textAlign: 'right' }}>
+                        U (&plusmn;{instrument.unit}) k=2
+                      </th>
+                    )}
                     <th style={{ ...thStyle, textAlign: 'center', width: 64 }}>Result</th>
                   </tr>
                 </thead>
@@ -516,6 +522,11 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
                         <td style={numTdStyle}>
                           {r.mpe_applicable != null ? `±${r.mpe_applicable}` : '—'}
                         </td>
+                        {hasUncertainty && (
+                          <td style={numTdStyle}>
+                            {r.expanded_uncertainty != null ? `±${r.expanded_uncertainty}` : '—'}
+                          </td>
+                        )}
                         <td style={{ ...tdStyle, textAlign: 'center', ...statusStyle }}>
                           {statusLabel}
                         </td>
