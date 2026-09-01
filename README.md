@@ -1,4 +1,4 @@
-# NAWI Test Report Generator  
+# NAWI Test Report Generator                        
 
 A web application for generating test reports for **Non-Automatic Weighing Instruments (NAWIs)** per [OIML Recommendation R 76-1:2006](https://www.oiml.org/en/files/pdf_r/r076-1-e06.pdf).
 
