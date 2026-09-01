@@ -187,8 +187,14 @@ function mpeFactorFor(accuracyClass: string, m: number): number {
 function getWeighingPerformanceDemo(min: number, max: number, e: number, d: number, dp: number, accuracyClass: string, shouldPass: boolean) {
   const loads = [min, r(max * 0.2, dp), r(max * 0.4, dp), r(max * 0.7, dp), max];
   const mpeOf = (load: number) => mpeFactorFor(accuracyClass, load / e) * e;
-  const errorFor = (load: number) =>
-    shouldPass ? randError(mpeOf(load), d, dp) : randFailError(mpeOf(load), d, dp);
+  const errorFor = (load: number) => {
+    const mpe = mpeOf(load);
+    if (!shouldPass) return randFailError(mpe, d, dp);
+    let err = randError(mpe, d, dp);
+    // Re-roll a zero once so the error profile stays visibly wavy
+    if (err === 0) err = randError(mpe, d, dp);
+    return err;
+  };
   const rows = [
     ...loads.map((load, i) => ({
       key: i + 1,
