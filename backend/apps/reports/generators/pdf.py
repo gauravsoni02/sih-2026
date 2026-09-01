@@ -1,8 +1,8 @@
 import logging
-import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape as _xml_escape
 
 from django.conf import settings
 
@@ -10,6 +10,30 @@ from apps.engine.constants import ComplianceStatus, TestType
 from apps.reports.generators import _build_report_context, build_uncertainty_budget
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Palette -- mirrors the certificate preview in
+# frontend/src/pages/reports/ReportDetail.tsx (the visual source of truth)
+# ---------------------------------------------------------------------------
+COLOR_TEXT = '#1a1a1a'         # body text and strong rules
+COLOR_MUTED = '#333333'        # secondary text (labels, addresses)
+COLOR_FAINT = '#666666'        # footer / signature designations
+COLOR_NA = '#888888'           # "N/A" grey
+COLOR_BORDER = '#999999'       # all table borders
+COLOR_SECTION_BG = '#E8E8E8'   # section title bars + table header rows
+COLOR_KV_LABEL_BG = '#F0F0F0'  # key-value label cells
+COLOR_ALT_ROW = '#FAFAFA'      # alternating table rows
+COLOR_PASS = '#006400'         # Pass / CONFORMS
+COLOR_FAIL = '#8B0000'         # Fail / DOES NOT CONFORM
+COLOR_PASS_BG = '#f0fff0'      # verdict box tint (pass)
+COLOR_FAIL_BG = '#fff5f5'      # verdict box tint (fail)
+
+# Typography -- the preview renders in Times New Roman with Courier numerics
+FONT_SERIF = 'Times-Roman'
+FONT_SERIF_BOLD = 'Times-Bold'
+FONT_SERIF_ITALIC = 'Times-Italic'
+FONT_MONO = 'Courier'
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +47,13 @@ def _format_decimal(val: Decimal | None) -> str:
     if normalized == normalized.to_integral_value():
         return str(int(normalized))
     return str(normalized)
+
+
+def _esc(val) -> str:
+    """XML-escape a value for safe interpolation into Paragraph markup."""
+    if val is None:
+        return ''
+    return _xml_escape(str(val))
 
 
 TEST_TYPE_TITLES: dict[str, str] = {
@@ -132,13 +163,14 @@ def _build_compliance_summary(results_qs) -> list[dict[str, str]]:
 
 
 # ===================================================================
-# ReportLab PDF implementation -- NABL-style calibration certificate
+# ReportLab PDF implementation -- styled to match the in-browser
+# certificate preview (ReportDetail.tsx) as closely as possible
 # ===================================================================
 
 def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib import colors
     from reportlab.platypus import (
@@ -156,128 +188,126 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     from reportlab.platypus.flowables import HRFlowable
 
     PAGE_W, PAGE_H = A4
-    MARGIN_LEFT = 15 * mm
-    MARGIN_RIGHT = 15 * mm
-    MARGIN_TOP = 20 * mm
-    MARGIN_BOTTOM = 15 * mm
+    MARGIN_LEFT = 16 * mm
+    MARGIN_RIGHT = 16 * mm
+    MARGIN_TOP = 21 * mm
+    MARGIN_BOTTOM = 16 * mm
 
     FRAME_W = PAGE_W - MARGIN_LEFT - MARGIN_RIGHT
 
     # -------------------------------------------------------------------
-    # Colours
+    # Colours (from the module-level preview palette)
     # -------------------------------------------------------------------
-    CLR_HEADER_BG = colors.HexColor('#E8E8E8')
-    CLR_ALT_ROW = colors.HexColor('#FAFAFA')
-    CLR_PASS = colors.HexColor('#006400')
-    CLR_FAIL = colors.HexColor('#8B0000')
-    CLR_GRAY = colors.HexColor('#888888')
-    CLR_RULE = colors.HexColor('#333333')
-    CLR_BORDER = colors.HexColor('#999999')
-    CLR_BLACK = colors.black
+    CLR_TEXT = colors.HexColor(COLOR_TEXT)
+    CLR_MUTED = colors.HexColor(COLOR_MUTED)
+    CLR_FAINT = colors.HexColor(COLOR_FAINT)
+    CLR_NA = colors.HexColor(COLOR_NA)
+    CLR_BORDER = colors.HexColor(COLOR_BORDER)
+    CLR_SECTION_BG = colors.HexColor(COLOR_SECTION_BG)
+    CLR_KV_LABEL_BG = colors.HexColor(COLOR_KV_LABEL_BG)
+    CLR_ALT_ROW = colors.HexColor(COLOR_ALT_ROW)
+    CLR_PASS = colors.HexColor(COLOR_PASS)
+    CLR_FAIL = colors.HexColor(COLOR_FAIL)
+    CLR_PASS_BG = colors.HexColor(COLOR_PASS_BG)
+    CLR_FAIL_BG = colors.HexColor(COLOR_FAIL_BG)
     CLR_WHITE = colors.white
 
     # -------------------------------------------------------------------
-    # Paragraph styles
+    # Paragraph styles (px sizes in the preview map 1:1 to points)
     # -------------------------------------------------------------------
     base_styles = getSampleStyleSheet()
 
-    sty_govt = ParagraphStyle(
-        'GovtHeader', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=12, leading=15,
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
-        textTransform='uppercase',
-    )
-    sty_lab = ParagraphStyle(
-        'LabHeader', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=12, leading=15,
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=2,
-    )
-    sty_lab_addr = ParagraphStyle(
-        'LabAddr', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=11, leading=14,
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=1,
-    )
-    sty_title = ParagraphStyle(
-        'CertTitle', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=14, leading=17,
-        alignment=TA_CENTER, spaceAfter=2, spaceBefore=6,
-    )
-    sty_subtitle = ParagraphStyle(
-        'CertSubtitle', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=10, leading=13,
-        alignment=TA_CENTER, spaceAfter=2, spaceBefore=1,
-    )
-    sty_cert_line = ParagraphStyle(
-        'CertLine', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=12,
-        alignment=TA_CENTER, spaceAfter=1, spaceBefore=1,
-    )
-    sty_section = ParagraphStyle(
-        'SectionHead', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=11, leading=14,
-        alignment=TA_LEFT, spaceAfter=2, spaceBefore=6,
-    )
-    sty_cell = ParagraphStyle(
-        'Cell', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=11,
-        alignment=TA_LEFT,
-    )
-    sty_cell_bold = ParagraphStyle(
-        'CellBold', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=9, leading=11,
-        alignment=TA_LEFT,
-    )
-    sty_cell_center = ParagraphStyle(
-        'CellCenter', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=11,
-        alignment=TA_CENTER,
-    )
-    sty_cell_center_bold = ParagraphStyle(
-        'CellCenterBold', parent=base_styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=9, leading=11,
-        alignment=TA_CENTER,
-    )
-    sty_cell_right = ParagraphStyle(
-        'CellRight', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=11,
-        alignment=TA_RIGHT,
-    )
-    sty_normal = ParagraphStyle(
-        'BodyNormal', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=12,
-        alignment=TA_LEFT,
-    )
-    sty_normal_center = ParagraphStyle(
-        'BodyCenter', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=9, leading=12,
-        alignment=TA_CENTER,
-    )
-    sty_italic_gray = ParagraphStyle(
-        'ItalicGray', parent=base_styles['Normal'],
-        fontName='Helvetica-Oblique', fontSize=9, leading=12,
-        alignment=TA_LEFT, textColor=CLR_GRAY,
-    )
-    sty_remark = ParagraphStyle(
-        'Remark', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=8, leading=10,
-        alignment=TA_LEFT, leftIndent=12,
-    )
-    sty_conclusion = ParagraphStyle(
-        'Conclusion', parent=base_styles['Normal'],
-        fontName='Helvetica', fontSize=10, leading=13,
-        alignment=TA_LEFT, spaceBefore=4, spaceAfter=4,
-    )
+    def _ps(name, **kw):
+        defaults = dict(parent=base_styles['Normal'], fontName=FONT_SERIF,
+                        textColor=CLR_TEXT)
+        defaults.update(kw)
+        return ParagraphStyle(name, **defaults)
+
+    # Government letterhead block (all centred, as in the preview)
+    sty_govt_main = _ps('GovtMain', fontName=FONT_SERIF_BOLD, fontSize=14,
+                        leading=17, alignment=TA_CENTER)
+    sty_govt_sub = _ps('GovtSub', fontName=FONT_SERIF_BOLD, fontSize=11,
+                       leading=14, alignment=TA_CENTER, spaceBefore=2)
+    sty_govt_dept = _ps('GovtDept', fontName=FONT_SERIF_BOLD, fontSize=10,
+                        leading=13, alignment=TA_CENTER, spaceBefore=1)
+    sty_lab_title = _ps('LabTitle', fontName=FONT_SERIF_BOLD, fontSize=15,
+                        leading=18, alignment=TA_CENTER, spaceBefore=10)
+    sty_lab_addr = _ps('LabAddr', fontSize=10, leading=13,
+                       alignment=TA_CENTER, textColor=CLR_MUTED, spaceBefore=3)
+    sty_cert_title = _ps('CertTitle', fontName=FONT_SERIF_BOLD, fontSize=12,
+                         leading=15, alignment=TA_CENTER, spaceBefore=4)
+    sty_subtitle = _ps('CertSubtitle', fontSize=10, leading=13,
+                       alignment=TA_CENTER, textColor=CLR_MUTED, spaceBefore=4)
+
+    # Certificate info row (borderless, label muted / value bold)
+    sty_ci_label = _ps('CiLabel', fontName=FONT_SERIF_BOLD, fontSize=10,
+                       leading=13, textColor=CLR_MUTED)
+    sty_ci_value = _ps('CiValue', fontName=FONT_SERIF_BOLD, fontSize=10,
+                       leading=13)
+    sty_ci_label_r = _ps('CiLabelR', fontName=FONT_SERIF_BOLD, fontSize=10,
+                         leading=13, textColor=CLR_MUTED, alignment=TA_RIGHT)
+    sty_ci_value_r = _ps('CiValueR', fontName=FONT_SERIF_BOLD, fontSize=10,
+                         leading=13, alignment=TA_RIGHT)
+
+    # Section bar / subsection heading
+    sty_section_bar = _ps('SectionBar', fontName=FONT_SERIF_BOLD, fontSize=11,
+                          leading=14)
+    sty_subhead = _ps('SubHead', fontName=FONT_SERIF_BOLD, fontSize=10,
+                      leading=13, spaceBefore=6)
+
+    # Table cells
+    sty_cell = _ps('Cell', fontSize=9, leading=11.5)
+    sty_cell_c = _ps('CellC', fontSize=9, leading=11.5, alignment=TA_CENTER)
+    sty_cell_b = _ps('CellB', fontName=FONT_SERIF_BOLD, fontSize=9,
+                     leading=11.5)
+    sty_num = _ps('CellNum', fontName=FONT_MONO, fontSize=9, leading=11.5,
+                  alignment=TA_RIGHT)
+    sty_hdr_l = _ps('HdrL', fontName=FONT_SERIF_BOLD, fontSize=9, leading=11.5)
+    sty_hdr_c = _ps('HdrC', fontName=FONT_SERIF_BOLD, fontSize=9,
+                    leading=11.5, alignment=TA_CENTER)
+    sty_hdr_r = _ps('HdrR', fontName=FONT_SERIF_BOLD, fontSize=9,
+                    leading=11.5, alignment=TA_RIGHT)
+
+    # Key-value grid cells (label grey / value mono, as in the preview)
+    sty_kv_label = _ps('KvLabel', fontName=FONT_SERIF_BOLD, fontSize=9.5,
+                       leading=12, textColor=CLR_MUTED)
+    sty_kv_value = _ps('KvValue', fontName=FONT_MONO, fontSize=9.5, leading=12)
+
+    # Misc body styles
+    sty_na = _ps('NaText', fontName=FONT_SERIF_ITALIC, fontSize=9,
+                 leading=12, textColor=CLR_NA)
+    sty_remark = _ps('Remark', fontSize=9, leading=13.5)
+    sty_conclusion = _ps('Conclusion', fontSize=10, leading=15,
+                         alignment=TA_JUSTIFY, spaceBefore=4, spaceAfter=4)
+    sty_verdict_pass = _ps('VerdictPass', fontName=FONT_SERIF_BOLD,
+                           fontSize=14, leading=18, alignment=TA_CENTER,
+                           textColor=CLR_PASS)
+    sty_verdict_fail = _ps('VerdictFail', fontName=FONT_SERIF_BOLD,
+                           fontSize=14, leading=18, alignment=TA_CENTER,
+                           textColor=CLR_FAIL)
+    sty_normal_center = _ps('BodyCenter', fontSize=9, leading=12,
+                            alignment=TA_CENTER)
+
+    # Signature block styles
+    sty_sig_role = _ps('SigRole', fontName=FONT_SERIF_BOLD, fontSize=10,
+                       leading=13, alignment=TA_CENTER)
+    sty_sig_name = _ps('SigName', fontSize=9, leading=12,
+                       alignment=TA_CENTER, spaceBefore=2)
+    sty_sig_meta = _ps('SigMeta', fontSize=8, leading=10,
+                       alignment=TA_CENTER, textColor=CLR_FAINT, spaceBefore=1)
 
     # -------------------------------------------------------------------
-    # Shared cell-padding for tables
+    # Shared table styling (preview: 1px #999 borders, #E8E8E8 header,
+    # #FAFAFA alternating rows, 3-4px vertical / 6px horizontal padding)
     # -------------------------------------------------------------------
-    CELL_PAD_V = 6
-    CELL_PAD_H = 8
+    BORDER_W = 0.75
+    CELL_PAD_V = 4
+    CELL_PAD_H = 6
 
     def _base_table_style(n_rows: int, has_header: bool = True) -> list:
-        """Return a list of TableStyle commands common to all bordered tables."""
+        """TableStyle commands common to all bordered data tables."""
         cmds: list = [
-            ('GRID', (0, 0), (-1, -1), 0.5, CLR_BORDER),
+            ('GRID', (0, 0), (-1, -1), BORDER_W, CLR_BORDER),
             ('TOPPADDING', (0, 0), (-1, -1), CELL_PAD_V),
             ('BOTTOMPADDING', (0, 0), (-1, -1), CELL_PAD_V),
             ('LEFTPADDING', (0, 0), (-1, -1), CELL_PAD_H),
@@ -285,7 +315,7 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]
         if has_header:
-            cmds.append(('BACKGROUND', (0, 0), (-1, 0), CLR_HEADER_BG))
+            cmds.append(('BACKGROUND', (0, 0), (-1, 0), CLR_SECTION_BG))
         # alternating rows (skip header)
         start = 1 if has_header else 0
         for i in range(start, n_rows):
@@ -293,25 +323,75 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
                 cmds.append(('BACKGROUND', (0, i), (-1, i), CLR_ALT_ROW))
         return cmds
 
+    def _kv_table_style(label_cols: tuple[int, ...] = (0, 2)) -> list:
+        """Key-value grid: grey label cells, bordered, no header row."""
+        cmds: list = [
+            ('GRID', (0, 0), (-1, -1), BORDER_W, CLR_BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), CELL_PAD_V),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), CELL_PAD_V),
+            ('LEFTPADDING', (0, 0), (-1, -1), CELL_PAD_H),
+            ('RIGHTPADDING', (0, 0), (-1, -1), CELL_PAD_H),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]
+        for c in label_cols:
+            cmds.append(('BACKGROUND', (c, 0), (c, -1), CLR_KV_LABEL_BG))
+        return cmds
+
+    def _section_bar(text: str) -> list:
+        """Grey, bordered, uppercase section title bar (preview style)."""
+        bar = Table(
+            [[Paragraph(text.upper(), sty_section_bar)]],
+            colWidths=[FRAME_W],
+        )
+        bar.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), CLR_SECTION_BG),
+            ('BOX', (0, 0), (-1, -1), BORDER_W, CLR_BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        return [Spacer(1, 10), bar, Spacer(1, 5)]
+
+    def _subhead(text: str) -> list:
+        """Numbered test subsection heading with an underline rule."""
+        return [
+            Paragraph(text, sty_subhead),
+            HRFlowable(width='100%', thickness=0.5, color=CLR_BORDER,
+                       spaceBefore=2, spaceAfter=4),
+        ]
+
     # -------------------------------------------------------------------
-    # Status-coloured paragraph helper
+    # Status-coloured paragraph (preview: bold green / bold dark red /
+    # italic grey)
     # -------------------------------------------------------------------
     def _status_para(status: str, label: str | None = None) -> Paragraph:
         text = label or _status_label(status)
         if status == ComplianceStatus.PASS:
             return Paragraph(
-                f'<font color="#{CLR_PASS.hexval()[2:]}">{text}</font>',
-                sty_cell_center,
+                f'<b><font color="{COLOR_PASS}">{text}</font></b>',
+                sty_cell_c,
             )
         if status == ComplianceStatus.FAIL:
             return Paragraph(
-                f'<font color="#{CLR_FAIL.hexval()[2:]}">{text}</font>',
-                sty_cell_center,
+                f'<b><font color="{COLOR_FAIL}">{text}</font></b>',
+                sty_cell_c,
             )
         return Paragraph(
-            f'<i><font color="#{CLR_GRAY.hexval()[2:]}">{text}</font></i>',
-            sty_cell_center,
+            f'<i><font color="{COLOR_NA}">{text}</font></i>',
+            sty_cell_c,
         )
+
+    # Styles bundle handed to the per-test-type table builders
+    S = {
+        'hdr_l': sty_hdr_l,
+        'hdr_c': sty_hdr_c,
+        'hdr_r': sty_hdr_r,
+        'cell': sty_cell,
+        'cell_c': sty_cell_c,
+        'cell_b': sty_cell_b,
+        'num': sty_num,
+    }
 
     # -------------------------------------------------------------------
     # Extract context values
@@ -331,6 +411,7 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     barometric_pressure = context.get('barometric_pressure')
     engineer_name = context.get('engineer_name', '')
     checked_by_name = context.get('checked_by_name', '')
+    checked_at = context.get('checked_at', '')
     approved_by_name = context.get('approved_by_name', '')
     approved_at = context.get('approved_at', '')
     software_version = context.get('software_version', '1.0')
@@ -365,6 +446,8 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     issue_date_fmt = _fmt_date(
         context.get('certificate_issue_date') or session_date)
     request_date_fmt = _fmt_date(request_date) if request_date else '—'
+    checked_at_fmt = _fmt_date(checked_at) if checked_at else ''
+    approved_at_fmt = _fmt_date(approved_at) if approved_at else ''
 
     # -------------------------------------------------------------------
     # Instrument details helper
@@ -403,12 +486,13 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         }.get(instrument.accuracy_class, instrument.accuracy_class)
 
     # -------------------------------------------------------------------
-    # Page-level callbacks (header / footer)
+    # Page-level callbacks (repeating header / document-control footer)
     # -------------------------------------------------------------------
-    DOC_CONTROL = (
-        f'Doc No: {doc_control_number}  |  Issue No: {doc_issue_number}  |  '
-        f'Issue Date: {doc_issue_date}  |  Rev No: {doc_rev_number}  |  '
-        f'Software v{software_version}'
+    logo = _load_logo_reader(logo_data_uri) if logo_data_uri else None
+
+    repeat_line = (
+        f'LEGAL METROLOGY LABORATORY — {lab_name}   ·   '
+        f'Certificate No: {report_number}   ·   Date: {session_date_fmt}'
     )
 
     def _draw_header_footer(canvas, doc):
@@ -416,20 +500,55 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         # -- repeating header (the centred 'Page X of Y' is drawn by
         #    _NumberedCanvas once the total page count is known) --
         y_top = PAGE_H - 12 * mm
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont(FONT_SERIF, 8)
+        canvas.setFillColor(CLR_TEXT)
         canvas.drawString(MARGIN_LEFT, y_top,
                           f'Certificate No: {report_number}')
         canvas.drawRightString(PAGE_W - MARGIN_RIGHT, y_top,
                                f'ULR No: {accreditation_number}')
-        canvas.setStrokeColor(CLR_RULE)
+        if canvas.getPageNumber() > 1:
+            # continuation pages repeat the laboratory identity, as the
+            # preview does at the top of its results / summary pages
+            canvas.setFont(FONT_SERIF, 7.5)
+            canvas.setFillColor(CLR_MUTED)
+            canvas.drawCentredString(PAGE_W / 2, y_top - 11, repeat_line)
+            rule_y = y_top - 15
+        else:
+            rule_y = y_top - 4
+        canvas.setStrokeColor(CLR_TEXT)
         canvas.setLineWidth(0.4)
-        canvas.line(MARGIN_LEFT, y_top - 3, PAGE_W - MARGIN_RIGHT, y_top - 3)
+        canvas.line(MARGIN_LEFT, rule_y, PAGE_W - MARGIN_RIGHT, rule_y)
 
-        # -- repeating footer --
+        # -- first-page logo, top-left of the letterhead (as in preview) --
+        if logo is not None and canvas.getPageNumber() == 1:
+            reader, w, h = logo
+            try:
+                canvas.drawImage(
+                    reader, MARGIN_LEFT, PAGE_H - MARGIN_TOP - h,
+                    width=w, height=h, mask='auto',
+                    preserveAspectRatio=True,
+                )
+            except Exception:
+                pass
+
+        # -- repeating document-control footer (preview footer strip) --
         y_bot = MARGIN_BOTTOM - 4 * mm
-        canvas.setFont('Helvetica', 7)
-        canvas.setFillColor(CLR_GRAY)
-        canvas.drawCentredString(PAGE_W / 2, y_bot, DOC_CONTROL)
+        canvas.setStrokeColor(CLR_TEXT)
+        canvas.setLineWidth(0.75)
+        canvas.line(MARGIN_LEFT, y_bot + 9, PAGE_W - MARGIN_RIGHT, y_bot + 9)
+        canvas.setFont(FONT_SERIF, 7)
+        canvas.setFillColor(CLR_FAINT)
+        canvas.drawString(MARGIN_LEFT, y_bot, f'Doc No: {doc_control_number}')
+        canvas.drawCentredString(
+            PAGE_W / 2, y_bot,
+            f'Issue No: {doc_issue_number}   ·   '
+            f'Issue Date: {doc_issue_date}   ·   '
+            f'Rev No: {doc_rev_number}',
+        )
+        canvas.drawRightString(
+            PAGE_W - MARGIN_RIGHT, y_bot,
+            f'NAWI Test Report Generator · Software v{software_version}',
+        )
         canvas.restoreState()
 
     def _draw_first_page(canvas, doc):
@@ -458,8 +577,8 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
             for state in self._saved_page_states:
                 self.__dict__.update(state)
                 self.saveState()
-                self.setFont('Helvetica', 8)
-                self.setFillColor(CLR_BLACK)
+                self.setFont(FONT_SERIF, 8)
+                self.setFillColor(CLR_TEXT)
                 self.drawCentredString(
                     PAGE_W / 2, PAGE_H - 12 * mm,
                     f'Page {self._pageNumber} of {total}',
@@ -500,189 +619,172 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     story: list = []
 
     # ===================================================================
-    # PAGE 1 -- Title / header block
+    # PAGE 1 -- Government letterhead (centred, logo drawn top-left on
+    # the canvas so the text block stays exactly centred like the preview)
     # ===================================================================
-    jurisdiction_escaped = jurisdiction.replace('&', '&amp;')
-    header_flowables = [
-        Paragraph('GOVERNMENT OF INDIA', sty_govt),
-        Paragraph(jurisdiction_escaped, sty_govt),
-        Paragraph('DEPARTMENT OF CONSUMER AFFAIRS', sty_govt),
-        Spacer(1, 6),
-        Paragraph('LEGAL METROLOGY LABORATORY', sty_lab),
-        Paragraph(f'{lab_name}, {lab_address}', sty_lab_addr),
-    ]
-    logo_img = _load_logo_image(logo_data_uri) if logo_data_uri else None
-    if logo_img is not None:
-        # Logo top-left (max 60x60px ~ 16mm), header text block beside it
-        hdr_tbl = Table(
-            [[logo_img, header_flowables]],
-            colWidths=[20 * mm, FRAME_W - 20 * mm],
-        )
-        hdr_tbl.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-        ]))
-        story.append(hdr_tbl)
-    else:
-        story.extend(header_flowables)
-    story.append(Spacer(1, 2))
+    story.append(Paragraph('GOVERNMENT OF INDIA', sty_govt_main))
+    story.append(Paragraph(_esc(jurisdiction).upper(), sty_govt_sub))
+    story.append(Paragraph('DEPARTMENT OF CONSUMER AFFAIRS', sty_govt_dept))
+    story.append(Paragraph('LEGAL METROLOGY LABORATORY', sty_lab_title))
+    lab_line = _esc(lab_name) + (f', {_esc(lab_address)}' if lab_address else '')
+    story.append(Paragraph(lab_line, sty_lab_addr))
     story.append(HRFlowable(
-        width='100%', thickness=1, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=2,
+        width='100%', thickness=2, color=CLR_TEXT,
+        spaceBefore=8, spaceAfter=4,
     ))
     story.append(Paragraph(
-        'TEST REPORT FOR NON-AUTOMATIC WEIGHING INSTRUMENT', sty_title))
+        'TEST REPORT FOR NON-AUTOMATIC WEIGHING INSTRUMENT', sty_cert_title))
     story.append(Paragraph(
-        f'As per OIML R 76-1:2006 &middot; {evaluation_type_label}',
+        f'As per OIML R 76-1:2006 &middot; {_esc(evaluation_type_label)}',
         sty_subtitle,
     ))
-    story.append(Spacer(1, 2))
+    story.append(Spacer(1, 8))
 
-    # Certificate / ULR / Date line
-    cert_data = [
+    # Certificate info rows (label muted / value bold, right column
+    # right-aligned -- exactly the preview's certificate info table)
+    cert_rows = [
         [
-            Paragraph(
-                f'<b>Certificate No:</b> {report_number} &nbsp;&nbsp; '
-                f'<b>Version:</b> {report_version}', sty_cell),
-            Paragraph(f'<b>ULR No:</b> {accreditation_number}', sty_cell_right),
+            Paragraph('Certificate No:', sty_ci_label),
+            Paragraph(_esc(report_number), sty_ci_value),
+            Paragraph('ULR No:', sty_ci_label_r),
+            Paragraph(_esc(accreditation_number) or '—', sty_ci_value_r),
         ],
         [
-            Paragraph(
-                f'<b>Certificate Issue Date:</b> {issue_date_fmt}', sty_cell),
-            Paragraph('', sty_cell_right),
+            Paragraph('Certificate Issue Date:', sty_ci_label),
+            Paragraph(issue_date_fmt, sty_ci_value),
+            Paragraph('Verification Type:', sty_ci_label_r),
+            Paragraph(_esc(verification_type_label) or '—', sty_ci_value_r),
+        ],
+        [
+            Paragraph('Report Version:', sty_ci_label),
+            Paragraph(str(report_version), sty_ci_value),
+            Paragraph('', sty_ci_label_r),
+            Paragraph('', sty_ci_value_r),
         ],
     ]
-    cert_tbl = Table(cert_data, colWidths=[FRAME_W * 0.5, FRAME_W * 0.5])
+    cert_tbl = Table(cert_rows, colWidths=[
+        FRAME_W * 0.22, FRAME_W * 0.32, FRAME_W * 0.24, FRAME_W * 0.22,
+    ])
     cert_tbl.setStyle(TableStyle([
         ('TOPPADDING', (0, 0), (-1, -1), 2),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     story.append(cert_tbl)
-    story.append(Spacer(1, 8))
 
     # ===================================================================
-    # Customer / Applicant details table
+    # 1. Instrument Under Test -- preview's 4-column key-value grid,
+    # extended with the extra fields the PDF has always carried
     # ===================================================================
-    story.append(Paragraph('1. Customer / Applicant Details', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
+    story.extend(_section_bar('1. Instrument Under Test'))
 
-    # Customer details come from the test session; when absent an em dash
-    # is rendered — never the lab's own name or the test engineer.
-    cust_rows = [
-        [Paragraph('<b>Parameter</b>', sty_cell_bold),
-         Paragraph('<b>Details</b>', sty_cell_bold)],
-        [Paragraph('Customer / Applicant Name', sty_cell),
-         Paragraph(customer_name or '—', sty_cell)],
-        [Paragraph('Address', sty_cell),
-         Paragraph(customer_address or '—', sty_cell)],
-        [Paragraph('Contact', sty_cell),
-         Paragraph(customer_contact or '—', sty_cell)],
-        [Paragraph('Test Request Date', sty_cell),
-         Paragraph(request_date_fmt, sty_cell)],
-        [Paragraph('Date of Testing', sty_cell),
-         Paragraph(session_date_fmt, sty_cell)],
-    ]
-    cust_tbl = Table(cust_rows, colWidths=[FRAME_W * 0.35, FRAME_W * 0.65])
-    cust_tbl.setStyle(TableStyle(_base_table_style(len(cust_rows))))
-    story.append(cust_tbl)
-    story.append(Spacer(1, 8))
+    def _kvl(text):
+        return Paragraph(text, sty_kv_label)
 
-    # ===================================================================
-    # Instrument details table
-    # ===================================================================
-    story.append(Paragraph('2. Instrument Under Test', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
+    def _kvv(text):
+        return Paragraph(text, sty_kv_value)
 
+    max_safe_load = (
+        f'{_inst("max_safe_load")} {unit_str}'
+        if instrument is not None and instrument.max_safe_load else '—'
+    )
     inst_rows = [
-        [Paragraph('<b>Parameter</b>', sty_cell_bold),
-         Paragraph('<b>Details</b>', sty_cell_bold)],
-        [Paragraph('Manufacturer', sty_cell),
-         Paragraph(_inst('manufacturer'), sty_cell)],
-        [Paragraph('Model', sty_cell),
-         Paragraph(_inst('model_name'), sty_cell)],
-        [Paragraph('Serial Number', sty_cell),
-         Paragraph(_inst('serial_number'), sty_cell)],
-        [Paragraph('Accuracy Class', sty_cell),
-         Paragraph(_accuracy_label(), sty_cell)],
-        [Paragraph(f'Maximum Capacity (Max)', sty_cell),
-         Paragraph(f'{_inst("max_capacity")} {unit_str}', sty_cell)],
-        [Paragraph(f'Minimum Capacity (Min)', sty_cell),
-         Paragraph(f'{_inst("min_capacity")} {unit_str}', sty_cell)],
-        [Paragraph(f'Verification Scale Interval (e)', sty_cell),
-         Paragraph(f'{_inst("verification_scale_interval_e")} {unit_str}',
-                   sty_cell)],
-        [Paragraph(f'Actual Scale Interval (d)', sty_cell),
-         Paragraph(f'{_inst("actual_scale_interval_d")} {unit_str}',
-                   sty_cell)],
-        [Paragraph('Number of Scale Intervals (n)', sty_cell),
-         Paragraph(_inst('num_scale_intervals_n'), sty_cell)],
-        [Paragraph('Tare Device', sty_cell),
-         Paragraph(_tare_label(), sty_cell)],
-        [Paragraph(f'Maximum Additive Tare', sty_cell),
-         Paragraph(f'{_inst("max_additive_tare")} {unit_str}', sty_cell)],
-        [Paragraph(f'Maximum Safe Load', sty_cell),
-         Paragraph(
-             f'{_inst("max_safe_load")} {unit_str}'
-             if instrument and instrument.max_safe_load else '—',
-             sty_cell)],
-        [Paragraph('Multi-Interval', sty_cell),
-         Paragraph('Yes' if instrument and instrument.is_multi_interval
-                   else 'No', sty_cell)],
+        [_kvl('Instrument Detail'),
+         _kvv('Non-Automatic Weighing Instrument'), '', ''],
+        [_kvl('Make / Manufacturer'), _kvv(_esc(_inst('manufacturer'))),
+         _kvl('Model'), _kvv(_esc(_inst('model_name')))],
+        [_kvl('Serial Number'), _kvv(_esc(_inst('serial_number'))),
+         _kvl('Accuracy Class'), _kvv(_esc(_accuracy_label()))],
+        [_kvl('Max Capacity (Max)'),
+         _kvv(f'{_inst("max_capacity")} {unit_str}'),
+         _kvl('Min Capacity (Min)'),
+         _kvv(f'{_inst("min_capacity")} {unit_str}')],
+        [_kvl('Verification Scale Interval (e)'),
+         _kvv(f'{_inst("verification_scale_interval_e")} {unit_str}'),
+         _kvl('Actual Scale Interval (d)'),
+         _kvv(f'{_inst("actual_scale_interval_d")} {unit_str}')],
+        [_kvl('Number of Scale Intervals (n)'),
+         _kvv(_inst('num_scale_intervals_n')),
+         _kvl('Tare Device'), _kvv(_esc(_tare_label()))],
+        [_kvl('Maximum Additive Tare'),
+         _kvv(f'{_inst("max_additive_tare")} {unit_str}'),
+         _kvl('Maximum Safe Load'), _kvv(max_safe_load)],
+        [_kvl('Multi-Interval'),
+         _kvv('Yes' if instrument is not None and instrument.is_multi_interval
+              else 'No'),
+         _kvl(''), _kvv('')],
     ]
-    inst_tbl = Table(inst_rows, colWidths=[FRAME_W * 0.35, FRAME_W * 0.65])
-    inst_tbl.setStyle(TableStyle(_base_table_style(len(inst_rows))))
+    inst_tbl = Table(inst_rows, colWidths=[
+        FRAME_W * 0.26, FRAME_W * 0.24, FRAME_W * 0.26, FRAME_W * 0.24,
+    ])
+    inst_style = _kv_table_style()
+    inst_style.append(('SPAN', (1, 0), (3, 0)))
+    inst_style.append(('BACKGROUND', (1, 0), (3, 0), CLR_WHITE))
+    inst_tbl.setStyle(TableStyle(inst_style))
     story.append(inst_tbl)
-    story.append(Spacer(1, 8))
 
     # ===================================================================
-    # Environmental conditions
+    # 2. Customer / Applicant Details (PDF-only data, styled as a grid)
     # ===================================================================
-    story.append(Paragraph('3. Environmental Conditions', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
+    story.extend(_section_bar('2. Customer / Applicant Details'))
 
-    temp_start_s = _format_decimal(temperature_start) if temperature_start else '—'
-    temp_end_s = _format_decimal(temperature_end) if temperature_end else '—'
-    humidity_s = _format_decimal(humidity) if humidity else '—'
-    pressure_s = _format_decimal(barometric_pressure) if barometric_pressure else '—'
+    cust_rows = [
+        [_kvl('Customer / Applicant Name'),
+         _kvv(_esc(customer_name) or '—'), '', ''],
+        [_kvl('Address'), _kvv(_esc(customer_address) or '—'), '', ''],
+        [_kvl('Contact'), _kvv(_esc(customer_contact) or '—'),
+         _kvl('Test Request Date'), _kvv(request_date_fmt)],
+        [_kvl('Date of Testing'), _kvv(session_date_fmt),
+         _kvl(''), _kvv('')],
+    ]
+    cust_tbl = Table(cust_rows, colWidths=[
+        FRAME_W * 0.26, FRAME_W * 0.24, FRAME_W * 0.26, FRAME_W * 0.24,
+    ])
+    cust_style = _kv_table_style()
+    for r_idx in (0, 1):
+        cust_style.append(('SPAN', (1, r_idx), (3, r_idx)))
+        cust_style.append(('BACKGROUND', (1, r_idx), (3, r_idx), CLR_WHITE))
+    cust_tbl.setStyle(TableStyle(cust_style))
+    story.append(cust_tbl)
+
+    # ===================================================================
+    # 3. Environmental Conditions During Test (preview's combined grid)
+    # ===================================================================
+    story.extend(_section_bar('3. Environmental Conditions During Test'))
+
+    temp_start_s = _format_decimal(temperature_start) if temperature_start else ''
+    temp_end_s = _format_decimal(temperature_end) if temperature_end else ''
+    if temp_start_s:
+        temp_range_s = (
+            f'{temp_start_s} – {temp_end_s} °C' if temp_end_s
+            else f'{temp_start_s} °C'
+        )
+    else:
+        temp_range_s = '—'
+    humidity_s = (
+        f'{_format_decimal(humidity)} %' if humidity else '—')
+    pressure_s = (
+        f'{_format_decimal(barometric_pressure)} hPa'
+        if barometric_pressure else '—')
 
     env_rows = [
-        [Paragraph('<b>Parameter</b>', sty_cell_bold),
-         Paragraph('<b>Value</b>', sty_cell_bold)],
-        [Paragraph('Temperature at Start', sty_cell),
-         Paragraph(f'{temp_start_s} °C', sty_cell)],
-        [Paragraph('Temperature at End', sty_cell),
-         Paragraph(f'{temp_end_s} °C', sty_cell)],
-        [Paragraph('Relative Humidity', sty_cell),
-         Paragraph(f'{humidity_s} %', sty_cell)],
-        [Paragraph('Barometric Pressure', sty_cell),
-         Paragraph(f'{pressure_s} hPa', sty_cell)],
+        [_kvl('Average Temperature'), _kvv(temp_range_s),
+         _kvl('Average Relative Humidity'), _kvv(humidity_s)],
+        [_kvl('Average Barometric Pressure'), _kvv(pressure_s),
+         _kvl(''), _kvv('')],
     ]
-    env_tbl = Table(env_rows, colWidths=[FRAME_W * 0.35, FRAME_W * 0.65])
-    env_tbl.setStyle(TableStyle(_base_table_style(len(env_rows))))
+    env_tbl = Table(env_rows, colWidths=[
+        FRAME_W * 0.26, FRAME_W * 0.24, FRAME_W * 0.26, FRAME_W * 0.24,
+    ])
+    env_tbl.setStyle(TableStyle(_kv_table_style()))
     story.append(env_tbl)
-    story.append(Spacer(1, 8))
 
     # ===================================================================
-    # Important remarks
+    # 4. Important Remarks -- bordered box with a numbered list
     # ===================================================================
-    story.append(Paragraph('4. Important Remarks', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
+    story.extend(_section_bar('4. Important Remarks'))
 
     from apps.reports.generators import DEFAULT_REMARKS
     remarks = context.get('remarks') or DEFAULT_REMARKS
@@ -691,103 +793,75 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     for idx, remark in enumerate(remarks, 1):
         remark_data.append([
             Paragraph(f'{idx}.', sty_remark),
-            Paragraph(remark, sty_remark),
+            Paragraph(_esc(remark), sty_remark),
         ])
 
     remark_tbl = Table(remark_data,
                        colWidths=[FRAME_W * 0.05, FRAME_W * 0.95])
     remark_tbl.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 0.5, CLR_BORDER),
+        ('BOX', (0, 0), (-1, -1), BORDER_W, CLR_BORDER),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('LEFTPADDING', (0, 0), (-1, -1), 4),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
     story.append(remark_tbl)
-    story.append(Spacer(1, 10))
-
-    # Approval signature on page 1 (right-aligned)
-    if approved_by_name:
-        sig_data = [
-            [Paragraph('', sty_cell),
-             Paragraph(f'<b>Approved By:</b> {approved_by_name}',
-                       sty_cell_right)],
-        ]
-        if approved_at:
-            sig_data.append([
-                Paragraph('', sty_cell),
-                Paragraph(f'Date: {approved_at}', sty_cell_right),
-            ])
-        sig_tbl = Table(sig_data,
-                        colWidths=[FRAME_W * 0.5, FRAME_W * 0.5])
-        sig_tbl.setStyle(TableStyle([
-            ('TOPPADDING', (0, 0), (-1, -1), 1),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-        ]))
-        story.append(sig_tbl)
 
     # Switch to Later page template for remaining pages
     story.append(NextPageTemplate('Later'))
     story.append(PageBreak())
 
     # ===================================================================
-    # PAGE 2+ -- Test Results
+    # PAGE 2+ -- 5. Test Results (subsections 5.1, 5.2, ... with the
+    # preview's underlined subsection headings)
     # ===================================================================
     section_num = 5
+    story.extend(_section_bar(f'{section_num}. Test Results'))
 
-    for sec in test_sections:
+    for sub_idx, sec in enumerate(test_sections, 1):
         title = sec['title']
         test_type = sec['test_type']
         results = sec['results']
 
         section_flowables: list = []
-
-        section_flowables.append(
-            Paragraph(f'{section_num}. {title}', sty_section))
-        section_flowables.append(HRFlowable(
-            width='100%', thickness=0.5, color=CLR_RULE,
-            spaceAfter=4, spaceBefore=0,
-        ))
+        section_flowables.extend(
+            _subhead(f'{section_num}.{sub_idx} {title}'))
 
         if not results:
-            section_flowables.append(
-                Paragraph('Not Applicable', sty_italic_gray))
+            section_flowables.append(Paragraph(
+                'Not Applicable — Test was not performed for this instrument.',
+                sty_na,
+            ))
             section_flowables.append(Spacer(1, 8))
             story.extend(section_flowables)
-            section_num += 1
             continue
 
         # Build table based on test type
         if test_type == TestType.WEIGHING_PERFORMANCE:
             _add_weighing_table(
                 section_flowables, results, FRAME_W, unit_str,
-                sty_cell_center_bold, sty_cell_center, sty_cell,
-                _base_table_style, _status_para, CLR_PASS, CLR_FAIL,
+                S, _base_table_style, _status_para,
             )
         elif test_type == TestType.ECCENTRICITY:
             _add_eccentricity_table(
                 section_flowables, results, FRAME_W, unit_str,
-                sty_cell_center_bold, sty_cell_center, sty_cell,
-                _base_table_style, _status_para,
+                S, _base_table_style, _status_para,
             )
         elif test_type == TestType.REPEATABILITY:
             _add_repeatability_table(
                 section_flowables, results, FRAME_W, unit_str,
-                sty_cell_center_bold, sty_cell_center, sty_cell,
-                _base_table_style, _status_para,
+                S, _base_table_style, _status_para,
             )
         elif test_type == TestType.DISCRIMINATION:
             _add_discrimination_table(
                 section_flowables, results, FRAME_W, unit_str,
-                sty_cell_center_bold, sty_cell_center, sty_cell,
-                _base_table_style, _status_para,
+                S, _base_table_style, _status_para,
             )
         else:
             _add_generic_table(
                 section_flowables, results, FRAME_W, unit_str,
-                sty_cell_center_bold, sty_cell_center, sty_cell,
-                _base_table_style, _status_para,
+                S, _base_table_style, _status_para,
             )
 
         section_flowables.append(Spacer(1, 10))
@@ -798,20 +872,16 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         else:
             story.extend(section_flowables)
 
-        section_num += 1
+    section_num += 1
 
     # ===================================================================
-    # Measurement Uncertainty Budget
+    # 6. Measurement Uncertainty budget
     # ===================================================================
     budget = context.get('uncertainty_budget')
     if budget:
         budget_flowables: list = []
-        budget_flowables.append(Paragraph(
-            f'{section_num}. Measurement Uncertainty', sty_section))
-        budget_flowables.append(HRFlowable(
-            width='100%', thickness=0.5, color=CLR_RULE,
-            spaceAfter=4, spaceBefore=0,
-        ))
+        budget_flowables.extend(
+            _section_bar(f'{section_num}. Measurement Uncertainty'))
         budget_flowables.append(Paragraph(
             f'Uncertainty budget evaluated at the highest tested load '
             f'({_format_decimal(budget["load"])} {budget["unit"]}), '
@@ -834,133 +904,160 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
             return f'{value:.6f}'
 
         budget_rows = [[
-            Paragraph('<b>Uncertainty Component</b>', sty_cell_center_bold),
+            Paragraph('<b>Uncertainty Component</b>', sty_hdr_l),
             Paragraph(f'<b>Standard Uncertainty ({budget["unit"]})</b>',
-                      sty_cell_center_bold),
+                      sty_hdr_r),
         ]]
         for name, value in budget['components']:
             budget_rows.append([
-                Paragraph(name, sty_cell),
-                Paragraph(_fmt_u(value), sty_cell_center),
+                Paragraph(_esc(name), sty_cell),
+                Paragraph(_fmt_u(value), sty_num),
             ])
         budget_rows.append([
-            Paragraph('<b>Combined standard uncertainty u<sub>c</sub></b>', sty_cell),
-            Paragraph(f'<b>{_fmt_u(budget["u_combined"])}</b>', sty_cell_center),
+            Paragraph('<b>Combined standard uncertainty u<sub>c</sub></b>',
+                      sty_cell),
+            Paragraph(f'<b>{_fmt_u(budget["u_combined"])}</b>', sty_num),
         ])
         budget_rows.append([
             Paragraph(f'<b>Expanded uncertainty U (k={budget["k"]}, ~95%)</b>',
                       sty_cell),
-            Paragraph(f'<b>&plusmn;{_fmt_u(budget["expanded"])}</b>',
-                      sty_cell_center),
+            Paragraph(f'<b>&plusmn;{_fmt_u(budget["expanded"])}</b>', sty_num),
         ])
         budget_tbl = Table(
             budget_rows, colWidths=[FRAME_W * 0.62, FRAME_W * 0.38])
         budget_tbl.setStyle(TableStyle(_base_table_style(len(budget_rows))))
         budget_flowables.append(budget_tbl)
-        budget_flowables.append(Spacer(1, 10))
         story.append(KeepTogether(budget_flowables))
         section_num += 1
 
     # ===================================================================
-    # LAST PAGE -- Conclusion + Signatures
+    # LAST PAGE -- Overall summary, verdict box, conclusion, signatures
     # ===================================================================
     story.append(PageBreak())
 
-    # Overall test summary table
-    story.append(
-        Paragraph(f'{section_num}. Overall Test Summary', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
+    story.extend(_section_bar(f'{section_num}. Overall Test Summary'))
 
     summary_header = [
-        Paragraph('<b>Sr No</b>', sty_cell_center_bold),
-        Paragraph('<b>Test Performed</b>', sty_cell_center_bold),
-        Paragraph('<b>Result</b>', sty_cell_center_bold),
+        Paragraph('<b>Sr No.</b>', sty_hdr_c),
+        Paragraph('<b>Test Performed</b>', sty_hdr_l),
+        Paragraph('<b>Result</b>', sty_hdr_c),
     ]
     summary_rows = [summary_header]
     for idx, item in enumerate(compliance_summary, 1):
         summary_rows.append([
-            Paragraph(str(idx), sty_cell_center),
-            Paragraph(item['test_name'], sty_cell),
+            Paragraph(str(idx), sty_cell_c),
+            Paragraph(_esc(item['test_name']), sty_cell),
             _status_para(item['status'], item['status_label']),
         ])
 
-    col_w_summary = [FRAME_W * 0.10, FRAME_W * 0.60, FRAME_W * 0.30]
+    col_w_summary = [FRAME_W * 0.10, FRAME_W * 0.66, FRAME_W * 0.24]
     summary_tbl = Table(summary_rows, colWidths=col_w_summary)
     summary_tbl.setStyle(TableStyle(
         _base_table_style(len(summary_rows))))
     story.append(summary_tbl)
-    story.append(Spacer(1, 12))
 
-    # Conclusion
-    section_num += 1
-    story.append(
-        Paragraph(f'{section_num}. Conclusion', sty_section))
-    story.append(HRFlowable(
-        width='100%', thickness=0.5, color=CLR_RULE,
-        spaceAfter=4, spaceBefore=0,
-    ))
-
-    if overall_verdict == ComplianceStatus.PASS:
-        verdict_text = (
-            f'Based on the tests performed in accordance with OIML R 76-1:2006, '
-            f'the non-automatic weighing instrument described above '
-            f'<b><font color="#{CLR_PASS.hexval()[2:]}">CONFORMS</font></b> '
-            f'to the requirements for {evaluation_type_label} '
-            f'({verification_type_label} Verification).'
-        )
-    else:
-        verdict_text = (
-            f'Based on the tests performed in accordance with OIML R 76-1:2006, '
-            f'the non-automatic weighing instrument described above '
-            f'<b><font color="#{CLR_FAIL.hexval()[2:]}">DOES NOT CONFORM</font></b> '
-            f'to the requirements for {evaluation_type_label} '
-            f'({verification_type_label} Verification). '
-            f'Please refer to the individual test results above for details.'
-        )
-    story.append(Paragraph(verdict_text, sty_conclusion))
-    story.append(Spacer(1, 20))
-
-    # Three-column signature block
-    sig_block = [
-        [
-            Paragraph('', sty_cell_center),
-            Paragraph('', sty_cell_center),
-            Paragraph('', sty_cell_center),
-        ],
-        [
-            Paragraph('_' * 22, sty_cell_center),
-            Paragraph('_' * 22, sty_cell_center),
-            Paragraph('_' * 22, sty_cell_center),
-        ],
-        [
-            Paragraph(f'<b>Tested By</b>', sty_cell_center_bold),
-            Paragraph(f'<b>Checked By</b>', sty_cell_center_bold),
-            Paragraph(f'<b>Approved By</b>', sty_cell_center_bold),
-        ],
-        [
-            Paragraph(engineer_name or '—', sty_cell_center),
-            Paragraph(checked_by_name or '—', sty_cell_center),
-            Paragraph(approved_by_name or '—', sty_cell_center),
-        ],
-    ]
-    sig_col_w = FRAME_W / 3
-    sig_tbl = Table(sig_block,
-                    colWidths=[sig_col_w, sig_col_w, sig_col_w])
-    sig_tbl.setStyle(TableStyle([
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    # Overall verdict box (preview: thick coloured border, tinted
+    # background, large bold uppercase verdict)
+    is_pass = overall_verdict == ComplianceStatus.PASS
+    verdict_label = (
+        'CONFORMS TO OIML R 76-1:2006' if is_pass
+        else 'DOES NOT CONFORM TO OIML R 76-1:2006'
+    )
+    verdict_tbl = Table(
+        [[Paragraph(verdict_label,
+                    sty_verdict_pass if is_pass else sty_verdict_fail)]],
+        colWidths=[FRAME_W],
+    )
+    verdict_tbl.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 2, CLR_PASS if is_pass else CLR_FAIL),
+        ('BACKGROUND', (0, 0), (-1, -1),
+         CLR_PASS_BG if is_pass else CLR_FAIL_BG),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('LEFTPADDING', (0, 0), (-1, -1), 16),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 16),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
+    story.append(Spacer(1, 14))
+    story.append(verdict_tbl)
+    story.append(Spacer(1, 10))
+
+    # Conclusion narrative (preview wording, justified)
+    verdict_word = (
+        f'<b><font color="{COLOR_PASS}">CONFORMS</font></b>' if is_pass
+        else f'<b><font color="{COLOR_FAIL}">DOES NOT CONFORM</font></b>'
+    )
+    evaluation_detail = evaluation_type_label or ''
+    if (verification_type_label
+            and verification_type_label.lower()
+            not in evaluation_detail.lower()):
+        evaluation_detail += (
+            f' — {verification_type_label} Verification')
+    conclusion_text = (
+        f'Based on the test results obtained in accordance with OIML '
+        f'Recommendation R 76-1:2006 (Non-automatic weighing instruments '
+        f'&mdash; Part 1: Metrological and technical requirements &mdash; '
+        f'Tests), the above-described instrument bearing Serial Number '
+        f'<b>{_esc(_inst("serial_number"))}</b>, manufactured by '
+        f'<b>{_esc(_inst("manufacturer"))}</b>, Model '
+        f'<b>{_esc(_inst("model_name"))}</b>, with maximum capacity '
+        f'<b>{_inst("max_capacity")} {unit_str}</b> and accuracy class '
+        f'<b>{_esc(_inst("accuracy_class"))}</b>, {verdict_word} to the '
+        f'requirements specified for its declared accuracy class '
+        f'({_esc(evaluation_detail)}) as per the said recommendation.'
+    )
+    story.append(Paragraph(conclusion_text, sty_conclusion))
+
+    # Three-column signature block (preview: rule above each signatory,
+    # bold role, name, designation and date in faint grey)
+    sig_gap = 6 * mm
+    sig_col_w = (FRAME_W - 2 * sig_gap) / 3
+
+    def _sig_cell(role: str, name: str, designation: str,
+                  date_str: str) -> list:
+        return [
+            Paragraph(f'<b>{_esc(role)}</b>', sty_sig_role),
+            Paragraph(_esc(name) if name else '________________',
+                      sty_sig_name),
+            Paragraph(_esc(designation), sty_sig_meta),
+            Paragraph(
+                f'Date: {date_str}' if date_str else 'Date: ________________',
+                sty_sig_meta),
+        ]
+
+    sig_row = [
+        _sig_cell('Tested By', engineer_name, 'Testing Officer',
+                  session_date_fmt),
+        '',
+        _sig_cell('Checked By', checked_by_name, 'Senior Technical Officer',
+                  checked_at_fmt),
+        '',
+        _sig_cell('Approved By', approved_by_name, 'Laboratory In-Charge',
+                  approved_at_fmt),
+    ]
+    sig_tbl = Table(
+        [sig_row],
+        colWidths=[sig_col_w, sig_gap, sig_col_w, sig_gap, sig_col_w],
+    )
+    sig_style = [
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+    ]
+    for col in (0, 2, 4):
+        sig_style.append(
+            ('LINEABOVE', (col, 0), (col, 0), 0.75, CLR_TEXT))
+    sig_tbl.setStyle(TableStyle(sig_style))
+    story.append(Spacer(1, 56))  # room for physical signatures
     story.append(sig_tbl)
 
     # QR code for public certificate verification
     verify_url = context.get('verify_url')
     if verify_url:
-        qr_flowable = _build_qr_block(verify_url, sty_cell_center)
+        qr_flowable = _build_qr_block(verify_url, sty_normal_center)
         if qr_flowable is not None:
             story.append(Spacer(1, 18))
             story.append(qr_flowable)
@@ -975,10 +1072,12 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     doc.build(story, canvasmaker=_NumberedCanvas)
 
 
-def _load_logo_image(logo_data_uri: str):
-    """Decode a data: URI into a ReportLab Image capped at ~16mm square.
+def _load_logo_reader(logo_data_uri: str):
+    """Decode a data: URI into (ImageReader, width_pt, height_pt).
 
-    Returns None on any failure so the certificate renders without a logo.
+    Sized like the preview's logo (max ~40px high / 80px wide -> capped at
+    12mm x 24mm). Returns None on any failure so the certificate renders
+    without a logo.
     """
     try:
         import base64
@@ -986,16 +1085,13 @@ def _load_logo_image(logo_data_uri: str):
 
         from reportlab.lib.units import mm
         from reportlab.lib.utils import ImageReader
-        from reportlab.platypus import Image
 
         b64 = logo_data_uri.split(',', 1)[1]
         buf = io.BytesIO(base64.b64decode(b64))
         reader = ImageReader(buf)
         w, h = reader.getSize()
-        max_side = 16 * mm
-        scale = min(max_side / w, max_side / h)
-        buf.seek(0)
-        return Image(buf, width=w * scale, height=h * scale)
+        scale = min((24 * mm) / w, (12 * mm) / h, 1.0)
+        return reader, w * scale, h * scale
     except Exception:
         logger.exception("Logo decoding failed; certificate continues without it")
         return None
@@ -1025,7 +1121,7 @@ def _build_qr_block(verify_url: str, caption_style):
         qr_img = Image(buf, width=22 * mm, height=22 * mm)
         caption = Paragraph(
             'Scan to verify the authenticity of this certificate<br/>'
-            f'<font size="6" color="#666666">{verify_url}</font>',
+            f'<font size="6" color="{COLOR_FAINT}">{verify_url}</font>',
             caption_style,
         )
         tbl = Table([[qr_img], [caption]], colWidths=[None])
@@ -1042,6 +1138,11 @@ def _build_qr_block(verify_url: str, caption_style):
 
 # ===================================================================
 # Table builder functions for each test type
+#
+# All builders share the preview's table treatment: grey bold header
+# row, thin #999 grid, alternating #FAFAFA rows, right-aligned mono
+# numerics and coloured Pass/Fail cells (applied via _base_table_style
+# and the styles bundle S).
 # ===================================================================
 
 def _add_weighing_table(
@@ -1049,27 +1150,23 @@ def _add_weighing_table(
     results: list,
     frame_w: float,
     unit: str,
-    sty_hdr,
-    sty_center,
-    sty_cell,
+    S: dict,
     base_style_fn,
     status_para_fn,
-    clr_pass,
-    clr_fail,
 ) -> None:
-    """Weighing Performance: Sr No, Test Point, Mass Values, Indicated Value,
-    Error, MPE, Result."""
+    """Weighing Performance: Sr No, Test Point, Ref Mass, Indicated,
+    Error, MPE, Uncertainty, Result."""
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     header = [
-        Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph(f'<b>Test Point ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Ref. Mass ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
-        Paragraph(f'<b>U (±{unit}) k=2</b>', sty_hdr),
-        Paragraph('<b>Result</b>', sty_hdr),
+        Paragraph('<b>Sr No.</b>', S['hdr_c']),
+        Paragraph(f'<b>Test Point ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Ref. Mass ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Indicated ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Error ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>MPE (±{unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>U (±{unit}) k=2</b>', S['hdr_r']),
+        Paragraph('<b>Result</b>', S['hdr_c']),
     ]
     rows = [header]
     for idx, r in enumerate(results, 1):
@@ -1079,30 +1176,30 @@ def _add_weighing_table(
             _format_decimal(r.test_point_load)
         uncertainty = getattr(r, 'expanded_uncertainty', None)
         rows.append([
-            Paragraph(str(idx), sty_center),
-            Paragraph(_format_decimal(r.test_point_load), sty_center),
-            Paragraph(ref_val, sty_center),
-            Paragraph(indicated, sty_center),
-            Paragraph(_format_decimal(r.computed_error), sty_center),
+            Paragraph(str(idx), S['cell_c']),
+            Paragraph(_format_decimal(r.test_point_load), S['num']),
+            Paragraph(ref_val, S['num']),
+            Paragraph(indicated, S['num']),
+            Paragraph(_format_decimal(r.computed_error), S['num']),
             Paragraph(
                 f'±{_format_decimal(r.mpe_applicable)}'
                 if r.mpe_applicable else '—',
-                sty_center),
+                S['num']),
             Paragraph(
                 f'±{_format_decimal(uncertainty)}' if uncertainty else '—',
-                sty_center),
+                S['num']),
             status_para_fn(r.compliance_status),
         ])
 
     col_widths = [
-        frame_w * 0.06,
+        frame_w * 0.07,
         frame_w * 0.13,
         frame_w * 0.14,
         frame_w * 0.14,
         frame_w * 0.13,
         frame_w * 0.13,
         frame_w * 0.13,
-        frame_w * 0.14,
+        frame_w * 0.13,
     ]
     tbl = Table(rows, colWidths=col_widths)
     tbl.setStyle(TableStyle(base_style_fn(len(rows))))
@@ -1114,9 +1211,7 @@ def _add_eccentricity_table(
     results: list,
     frame_w: float,
     unit: str,
-    sty_hdr,
-    sty_center,
-    sty_cell,
+    S: dict,
     base_style_fn,
     status_para_fn,
 ) -> None:
@@ -1124,13 +1219,13 @@ def _add_eccentricity_table(
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     header = [
-        Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph('<b>Position</b>', sty_hdr),
-        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
-        Paragraph('<b>Result</b>', sty_hdr),
+        Paragraph('<b>Sr No.</b>', S['hdr_c']),
+        Paragraph('<b>Position</b>', S['hdr_l']),
+        Paragraph(f'<b>Test Load ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Indicated ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Error ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>MPE (±{unit})</b>', S['hdr_r']),
+        Paragraph('<b>Result</b>', S['hdr_c']),
     ]
 
     position_labels = {
@@ -1149,26 +1244,26 @@ def _add_eccentricity_table(
                                         pos_raw.replace('_', ' ').title())
         indicated = _format_decimal(obs.indicated_value) if obs else '—'
         rows.append([
-            Paragraph(str(idx), sty_center),
-            Paragraph(pos_label, sty_cell),
-            Paragraph(_format_decimal(r.test_point_load), sty_center),
-            Paragraph(indicated, sty_center),
-            Paragraph(_format_decimal(r.computed_error), sty_center),
+            Paragraph(str(idx), S['cell_c']),
+            Paragraph(pos_label, S['cell']),
+            Paragraph(_format_decimal(r.test_point_load), S['num']),
+            Paragraph(indicated, S['num']),
+            Paragraph(_format_decimal(r.computed_error), S['num']),
             Paragraph(
                 f'±{_format_decimal(r.mpe_applicable)}'
                 if r.mpe_applicable else '—',
-                sty_center),
+                S['num']),
             status_para_fn(r.compliance_status),
         ])
 
     col_widths = [
         frame_w * 0.07,
-        frame_w * 0.18,
+        frame_w * 0.19,
         frame_w * 0.14,
         frame_w * 0.16,
         frame_w * 0.14,
         frame_w * 0.14,
-        frame_w * 0.17,
+        frame_w * 0.16,
     ]
     tbl = Table(rows, colWidths=col_widths)
     tbl.setStyle(TableStyle(base_style_fn(len(rows))))
@@ -1185,10 +1280,12 @@ def _add_eccentricity_table(
             abs((r.computed_error or Decimal(0)) - centre_error)
             for r in corner_results
         )
+        from reportlab.platypus import Spacer
+        flowables.append(Spacer(1, 3))
         flowables.append(Paragraph(
             f'Maximum difference from centre load: '
-            f'{_format_decimal(max_diff)}',
-            sty_cell,
+            f'{_format_decimal(max_diff)} {unit}',
+            S['cell'],
         ))
 
 
@@ -1197,14 +1294,12 @@ def _add_repeatability_table(
     results: list,
     frame_w: float,
     unit: str,
-    sty_hdr,
-    sty_center,
-    sty_cell,
+    S: dict,
     base_style_fn,
     status_para_fn,
 ) -> None:
     """Repeatability: Trial-based layout with range calculation."""
-    from reportlab.platypus import Paragraph, Table, TableStyle
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
     from collections import OrderedDict
 
     # Group by test_point_load
@@ -1215,14 +1310,15 @@ def _add_repeatability_table(
 
     for load_str, load_results in by_load.items():
         flowables.append(Paragraph(
-            f'Test Load: {load_str} {unit}', sty_cell))
+            f'<b>Test Load: {load_str} {unit}</b>', S['cell_b']))
+        flowables.append(Spacer(1, 2))
 
         header = [
-            Paragraph('<b>Trial</b>', sty_hdr),
-            Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
-            Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
-            Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
-            Paragraph('<b>Result</b>', sty_hdr),
+            Paragraph('<b>Trial</b>', S['hdr_c']),
+            Paragraph(f'<b>Indicated ({unit})</b>', S['hdr_r']),
+            Paragraph(f'<b>Error ({unit})</b>', S['hdr_r']),
+            Paragraph(f'<b>MPE (±{unit})</b>', S['hdr_r']),
+            Paragraph('<b>Result</b>', S['hdr_c']),
         ]
 
         rows = [header]
@@ -1233,15 +1329,15 @@ def _add_repeatability_table(
             if ind_val is not None:
                 indicated_values.append(ind_val)
             rows.append([
-                Paragraph(str(r.trial_number), sty_center),
+                Paragraph(str(r.trial_number), S['cell_c']),
                 Paragraph(
                     _format_decimal(ind_val) if ind_val is not None
-                    else '—', sty_center),
-                Paragraph(_format_decimal(r.computed_error), sty_center),
+                    else '—', S['num']),
+                Paragraph(_format_decimal(r.computed_error), S['num']),
                 Paragraph(
                     f'±{_format_decimal(r.mpe_applicable)}'
                     if r.mpe_applicable else '—',
-                    sty_center),
+                    S['num']),
                 status_para_fn(r.compliance_status),
             ])
 
@@ -1249,11 +1345,11 @@ def _add_repeatability_table(
         if indicated_values:
             range_val = max(indicated_values) - min(indicated_values)
             rows.append([
-                Paragraph('<b>Range</b>', sty_center),
-                Paragraph(f'<b>{_format_decimal(range_val)}</b>', sty_center),
-                Paragraph('', sty_center),
-                Paragraph('', sty_center),
-                Paragraph('', sty_center),
+                Paragraph('<b>Range</b>', S['cell_c']),
+                Paragraph(f'<b>{_format_decimal(range_val)}</b>', S['num']),
+                Paragraph('', S['cell_c']),
+                Paragraph('', S['cell_c']),
+                Paragraph('', S['cell_c']),
             ])
 
         col_widths = [
@@ -1267,7 +1363,7 @@ def _add_repeatability_table(
         style_cmds = base_style_fn(len(rows))
         tbl.setStyle(TableStyle(style_cmds))
         flowables.append(tbl)
-        flowables.append(Paragraph('', sty_cell))  # small gap
+        flowables.append(Spacer(1, 6))
 
 
 def _add_discrimination_table(
@@ -1275,9 +1371,7 @@ def _add_discrimination_table(
     results: list,
     frame_w: float,
     unit: str,
-    sty_hdr,
-    sty_center,
-    sty_cell,
+    S: dict,
     base_style_fn,
     status_para_fn,
 ) -> None:
@@ -1286,12 +1380,12 @@ def _add_discrimination_table(
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     header = [
-        Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Indication Before ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Indication After +1.4d ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Change ({unit})</b>', sty_hdr),
-        Paragraph('<b>Result</b>', sty_hdr),
+        Paragraph('<b>Sr No.</b>', S['hdr_c']),
+        Paragraph(f'<b>Test Load ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Indication Before ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Indication After +1.4d ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Change ({unit})</b>', S['hdr_r']),
+        Paragraph('<b>Result</b>', S['hdr_c']),
     ]
 
     rows = [header]
@@ -1309,11 +1403,11 @@ def _add_discrimination_table(
                     obs.indicated_value - obs.reference_value)
 
         rows.append([
-            Paragraph(str(idx), sty_center),
-            Paragraph(_format_decimal(r.test_point_load), sty_center),
-            Paragraph(indicated_before, sty_center),
-            Paragraph(indicated_after, sty_center),
-            Paragraph(change, sty_center),
+            Paragraph(str(idx), S['cell_c']),
+            Paragraph(_format_decimal(r.test_point_load), S['num']),
+            Paragraph(indicated_before, S['num']),
+            Paragraph(indicated_after, S['num']),
+            Paragraph(change, S['num']),
             status_para_fn(r.compliance_status),
         ])
 
@@ -1335,9 +1429,7 @@ def _add_generic_table(
     results: list,
     frame_w: float,
     unit: str,
-    sty_hdr,
-    sty_center,
-    sty_cell,
+    S: dict,
     base_style_fn,
     status_para_fn,
 ) -> None:
@@ -1345,12 +1437,12 @@ def _add_generic_table(
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     header = [
-        Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
-        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
-        Paragraph('<b>Result</b>', sty_hdr),
+        Paragraph('<b>Sr No.</b>', S['hdr_c']),
+        Paragraph(f'<b>Test Load ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Indicated ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>Error ({unit})</b>', S['hdr_r']),
+        Paragraph(f'<b>MPE (±{unit})</b>', S['hdr_r']),
+        Paragraph('<b>Result</b>', S['hdr_c']),
     ]
 
     rows = [header]
@@ -1358,14 +1450,14 @@ def _add_generic_table(
         obs = r.observation
         indicated = _format_decimal(obs.indicated_value) if obs else '—'
         rows.append([
-            Paragraph(str(idx), sty_center),
-            Paragraph(_format_decimal(r.test_point_load), sty_center),
-            Paragraph(indicated, sty_center),
-            Paragraph(_format_decimal(r.computed_error), sty_center),
+            Paragraph(str(idx), S['cell_c']),
+            Paragraph(_format_decimal(r.test_point_load), S['num']),
+            Paragraph(indicated, S['num']),
+            Paragraph(_format_decimal(r.computed_error), S['num']),
             Paragraph(
                 f'±{_format_decimal(r.mpe_applicable)}'
                 if r.mpe_applicable else '—',
-                sty_center),
+                S['num']),
             status_para_fn(r.compliance_status),
         ])
 
