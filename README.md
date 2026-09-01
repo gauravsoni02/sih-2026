@@ -1,11 +1,11 @@
-# NAWI Test Report Generator                        
+# NAWI Test Report Generator:                        
 
 A web application for generating test reports for **Non-Automatic Weighing Instruments (NAWIs)** per [OIML Recommendation R 76-1:2006](https://www.oiml.org/en/files/pdf_r/r076-1-e06.pdf).
 
 Built for government metrology laboratories in India under the Legal Metrology Act, 2009 to evaluate and certify weighing instruments — electronic scales, platform scales, and weighbridges.
 
-## What it does
-
+## What it does: 
+                                            
 - **Register instruments** — store manufacturer, model, serial number, accuracy class (I–IIII), capacities, scale intervals (d and e), multi-interval configurations
 - **Run test sessions** — enter observations for 13+ test types (weighing performance, eccentricity, repeatability, discrimination, sensitivity, tare, creep, temperature, tilt, power supply, durability, span stability, zero tracking)
 - **Compute errors automatically** — OIML R 76 MPE lookup for all 4 accuracy classes, both initial and subsequent verification, multi-interval support
@@ -16,7 +16,7 @@ Built for government metrology laboratories in India under the Legal Metrology A
 - **Activity log** — audit trail of all changes with search and severity filtering
 - **Settings** — profile, laboratory, preferences, report configuration, connections, about
 
-## Tech stack
+## Tech stack: 
 
 | Layer | Technology |
 |-------|-----------|
@@ -30,9 +30,9 @@ Built for government metrology laboratories in India under the Legal Metrology A
 | Audit | django-auditlog |
 | Containerization | Docker, Docker Compose |
 
-## Quick start
+## Quick start: 
 
-### Backend
+### Backend: 
 
 ```bash
 cd backend
@@ -42,7 +42,7 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-### Frontend
+### Frontend: 
 
 ```bash
 cd frontend
@@ -51,8 +51,8 @@ npm run dev
 ```
 
 The frontend dev server runs at `http://localhost:5173` and proxies API requests to `http://localhost:8000`.
-
-### Docker
+         
+### Docker: 
 
 ```bash
 docker compose up -d
@@ -60,7 +60,7 @@ docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
 ```
 
-## Project structure
+## Project structure: 
 
 ```
 ├── backend/
@@ -88,17 +88,17 @@ docker compose exec web python manage.py createsuperuser
 └── .env.example
 ```
 
-## Domain knowledge
+## Domain knowledge: 
 
 The calculation engine implements OIML R 76-1:2006 exactly:
-
+              
 - **MPE Table 6** — boundary-correct lookup (`≤` on upper bounds) for all 4 accuracy classes
 - **Multi-interval instruments** — partial range detection, per-range e values
 - **d vs e distinction** — discrimination uses d (actual scale interval), MPE uses e (verification scale interval)
 - **All arithmetic in `Decimal`** — no floating-point errors at MPE boundaries
 - **189 backend tests** covering MPE boundaries, multi-interval edge cases, error computation, eccentricity, repeatability, discrimination, creep, compliance, and API permissions
 
-## Environment variables
+## Environment variables:         
 
 Copy `.env.example` to `.env` and fill in:
 
