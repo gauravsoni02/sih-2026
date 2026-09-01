@@ -317,8 +317,10 @@ def generate_report_view(request: Request, session_id: int) -> Response:
     try:
         from apps.reports.generators.pdf import generate_pdf
         from apps.reports.generators.docx import generate_docx
+        from apps.reports.signing import sign_pdf
 
         pdf_path = generate_pdf(report)
+        sign_pdf(pdf_path, reason=f'Certificate {report.report_number}')
         report.pdf_path = pdf_path
 
         docx_path = generate_docx(report)
