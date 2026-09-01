@@ -134,21 +134,42 @@ export function getDemoObservations(inst: InstrumentInfo | undefined, shouldPass
   const eccLoad = r((max + tPlus) / 3, decimalsFor(e));
   const dp = Math.max(decimalsFor(e), decimalsFor(d));
 
+  const cls = inst?.accuracy_class || 'III';
+
   return {
-    weighing_performance: getWeighingPerformanceDemo(min, max, e, d, dp, inst?.accuracy_class || 'III', shouldPass),
-    eccentricity: getEccentricityDemo(eccLoad, e, dp, shouldPass),
-    repeatability: getRepeatabilityDemo(halfMax, e, dp, shouldPass),
+    weighing_performance: getWeighingPerformanceDemo(min, max, e, d, dp, cls, shouldPass),
+    eccentricity: getEccentricityDemo(eccLoad, e, d, dp, cls, shouldPass),
+    repeatability: getRepeatabilityDemo(halfMax, e, d, dp, cls, shouldPass),
     discrimination: getDiscriminationDemo(min, halfMax, max, d, dp, shouldPass),
     sensitivity: getSensitivityDemo(max, d, e, dp, shouldPass),
-    tare: getTareDemo(max, e, dp, shouldPass),
-    creep: getCreepDemo(max, e, dp, shouldPass),
-    zero_tracking: getZeroTrackingDemo(e, dp, shouldPass),
-    temperature: getStandardDemo([min, halfMax, max], e, dp, shouldPass),
-    tilt: getStandardDemo([halfMax, max], e, dp, shouldPass),
-    power_supply: getStandardDemo([halfMax, max], e, dp, shouldPass),
-    durability: getStandardDemo([halfMax, max], e, dp, shouldPass),
-    span_stability: getSpanStabilityDemo(max, e, dp, shouldPass),
+    tare: getTareDemo(max, e, d, dp, cls, shouldPass),
+    creep: getCreepDemo(max, e, d, dp, shouldPass),
+    zero_tracking: getZeroTrackingDemo(e, d, dp, shouldPass),
+    temperature: getStandardDemo([min, halfMax, max], e, d, dp, cls, shouldPass),
+    tilt: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
+    power_supply: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
+    durability: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
+    span_stability: getSpanStabilityDemo(max, e, d, dp, cls, shouldPass),
   };
+}
+
+function randInt(lo: number, hi: number): number {
+  return Math.floor(Math.random() * (hi - lo + 1)) + lo;
+}
+
+// Random indication error in whole steps of d with |error| <= limit.
+// Returns 0 when the display resolution cannot show an error within limit.
+function randError(limit: number, d: number, dp: number, allowNegative = true): number {
+  const maxK = Math.floor((limit + 1e-9) / d);
+  if (maxK <= 0) return 0;
+  const k = allowNegative ? randInt(-maxK, maxK) : randInt(0, maxK);
+  return r(k * d, dp);
+}
+
+// Random error guaranteed to exceed limit (for failing demo data).
+function randFailError(limit: number, d: number, dp: number): number {
+  const k = Math.floor(limit / d) + 1 + randInt(1, 3);
+  return r((Math.random() < 0.5 ? -1 : 1) * k * d, dp);
 }
 
 function mpeFactorFor(accuracyClass: string, m: number): number {
@@ -165,63 +186,56 @@ function mpeFactorFor(accuracyClass: string, m: number): number {
 
 function getWeighingPerformanceDemo(min: number, max: number, e: number, d: number, dp: number, accuracyClass: string, shouldPass: boolean) {
   const loads = [min, r(max * 0.2, dp), r(max * 0.4, dp), r(max * 0.7, dp), max];
-  const mpeFactor = loads.map((load) => mpeFactorFor(accuracyClass, load / e));
-  // A real display indicates in multiples of d: quantize the error to d and
-  // aim for ~half the MPE so the profile is visible but always compliant.
-  const passError = (i: number, sign: number) => {
-    const mpe = mpeFactor[i] * e;
-    let err = Math.round((mpe * 0.5) / d) * d;
-    while (err > mpe + 1e-12) err -= d;
-    return r(sign * Math.max(err, 0), dp);
-  };
-  const failError = () => r(Math.round((e * 3) / d) * d, dp);
-  const signsInc = [0, 1, 1, -1, 1];
-  const signsDec = [1, -1, 1, 1, 0];
+  const mpeOf = (load: number) => mpeFactorFor(accuracyClass, load / e) * e;
+  const errorFor = (load: number) =>
+    shouldPass ? randError(mpeOf(load), d, dp) : randFailError(mpeOf(load), d, dp);
   const rows = [
     ...loads.map((load, i) => ({
       key: i + 1,
       direction: 'increasing' as const,
       test_point_load: String(load),
-      indicated_value: String(shouldPass
-        ? r(load + passError(i, signsInc[i]), dp)
-        : r(load + failError(), dp)),
+      indicated_value: String(r(load + errorFor(load), dp)),
       correction: '0',
     })),
     ...[...loads].reverse().map((load, i) => ({
       key: loads.length + i + 1,
       direction: 'decreasing' as const,
       test_point_load: String(load),
-      indicated_value: String(shouldPass
-        ? r(load + passError(loads.length - 1 - i, signsDec[i]), dp)
-        : r(load + failError(), dp)),
+      indicated_value: String(r(load + errorFor(load), dp)),
       correction: '0',
     })),
   ];
   return rows;
 }
 
-function getEccentricityDemo(testLoad: number, e: number, dp: number, shouldPass: boolean) {
-  const small = r(e * 0.1, dp);
-  const big = r(e * 5, dp);
+function getEccentricityDemo(testLoad: number, e: number, d: number, dp: number, cls: string, shouldPass: boolean) {
+  const mpe = mpeFactorFor(cls, testLoad / e) * e;
+  const err = () => (shouldPass ? randError(mpe, d, dp) : randFailError(mpe, d, dp));
   return {
     testLoad: String(testLoad),
     readings: {
       center: String(testLoad),
-      front_left:  String(r(testLoad + (shouldPass ? small : big), dp)),
-      front_right: String(r(testLoad - (shouldPass ? small : big), dp)),
-      rear_left:   String(r(testLoad + (shouldPass ? small * 2 : big), dp)),
-      rear_right:  String(r(testLoad - (shouldPass ? small * 2 : big), dp)),
+      front_left:  String(r(testLoad + err(), dp)),
+      front_right: String(r(testLoad + err(), dp)),
+      rear_left:   String(r(testLoad + err(), dp)),
+      rear_right:  String(r(testLoad + err(), dp)),
     },
   };
 }
 
-function getRepeatabilityDemo(load: number, e: number, dp: number, shouldPass: boolean) {
-  const tiny = r(e * 0.05, dp);
-  const spread = r(e * 3, dp);
-  const v = shouldPass ? tiny : spread;
+function getRepeatabilityDemo(load: number, e: number, d: number, dp: number, cls: string, shouldPass: boolean) {
+  const mpe = mpeFactorFor(cls, load / e) * e;
+  let readings: number[];
+  if (shouldPass) {
+    // Non-negative offsets so the range never exceeds the MPE
+    readings = Array.from({ length: 6 }, () => r(load + randError(mpe, d, dp, false), dp));
+  } else {
+    const spread = Math.abs(randFailError(mpe, d, dp));
+    readings = [load, r(load + spread, dp), load, load, r(load + spread, dp), load];
+  }
   return {
     testLoad: String(load),
-    readings: [load, r(load + v, dp), load, load, r(load + v, dp), load].map(String),
+    readings: readings.map(String),
   };
 }
 
@@ -240,63 +254,87 @@ function getSensitivityDemo(max: number, d: number, _e: number, dp: number, shou
   ];
 }
 
-function getTareDemo(max: number, e: number, dp: number, shouldPass: boolean) {
+function getTareDemo(max: number, e: number, d: number, dp: number, cls: string, shouldPass: boolean) {
   const tare1 = r(max * 0.1, dp);
-  const net1  = r(max * 0.3, dp);
+  const net1  = r(max * (0.25 + Math.random() * 0.15), dp);
   const tare2 = r(max * 0.2, dp);
-  const net2  = r(max * 0.5, dp);
-  const small = r(e * 0.1, dp);
-  const big   = r(e * 3, dp);
+  const net2  = r(max * (0.4 + Math.random() * 0.15), dp);
+  const err = (net: number) => {
+    const mpe = mpeFactorFor(cls, net / e) * e;
+    return shouldPass ? randError(mpe, d, dp) : randFailError(mpe, d, dp);
+  };
   // A tared display indicates the net load directly
   return [
-    { tare: String(tare1), net: String(net1), indicated: String(r(net1 + (shouldPass ? small : big), dp)) },
-    { tare: String(tare2), net: String(net2), indicated: String(r(net2 + (shouldPass ? 0 : big), dp)) },
+    { tare: String(tare1), net: String(net1), indicated: String(r(net1 + err(net1), dp)) },
+    { tare: String(tare2), net: String(net2), indicated: String(r(net2 + err(net2), dp)) },
   ];
 }
 
-function getCreepDemo(max: number, e: number, dp: number, shouldPass: boolean) {
+function getCreepDemo(max: number, e: number, d: number, dp: number, shouldPass: boolean) {
+  // Limits: total drift <= 0.5e, drift between 15 and 30 min <= 0.2e
+  const d15 = shouldPass ? randError(e * 0.2, d, dp, false) : r(e * 0.3, dp);
+  const d30 = shouldPass
+    ? r(d15 + randError(Math.min(e * 0.2, e * 0.45 - d15), d, dp, false), dp)
+    : r(e * 0.8, dp);
   return {
     testLoad: String(max),
     reading0:  String(max),
-    reading15: String(r(max + (shouldPass ? e * 0.05 : e * 0.3), dp)),
-    reading30: String(r(max + (shouldPass ? e * 0.1  : e * 0.8), dp)),
+    reading15: String(r(max + d15, dp)),
+    reading30: String(r(max + d30, dp)),
   };
 }
 
-function getZeroTrackingDemo(e: number, dp: number, shouldPass: boolean) {
+function getZeroTrackingDemo(e: number, d: number, dp: number, shouldPass: boolean) {
+  // Zero return criterion: deviation <= 0.5e
   return {
     before: '0',
-    after: String(shouldPass ? r(e * 0.1, dp) : r(e * 3, dp)),
+    after: String(shouldPass ? randError(e * 0.5, d, dp, false) : Math.abs(randFailError(e * 0.5, d, dp))),
   };
 }
 
 function getSpanStabilityDemo(
   max: number,
   e: number,
+  d: number,
   dp: number,
+  cls: string,
   shouldPass: boolean,
 ): { load: string; indicated: string; correction: string }[] {
   // Repeated measurements at Max; the spread between them is what matters
-  const drift = shouldPass ? r(e * 0.1, dp) : r(e * 3, dp);
+  const mpe = mpeFactorFor(cls, max / e) * e;
+  const reading = () => r(max + randError(mpe, d, dp, false), dp);
+  if (!shouldPass) {
+    const spread = Math.abs(randFailError(mpe, d, dp));
+    return [
+      { load: String(max), indicated: String(max), correction: '0' },
+      { load: String(max), indicated: String(r(max + spread, dp)), correction: '0' },
+      { load: String(max), indicated: String(max), correction: '0' },
+    ];
+  }
   return [
-    { load: String(max), indicated: String(max), correction: '0' },
-    { load: String(max), indicated: String(r(max + drift, dp)), correction: '0' },
-    { load: String(max), indicated: String(max), correction: '0' },
+    { load: String(max), indicated: String(reading()), correction: '0' },
+    { load: String(max), indicated: String(reading()), correction: '0' },
+    { load: String(max), indicated: String(reading()), correction: '0' },
   ];
 }
 
 function getStandardDemo(
   loads: number[],
   e: number,
+  d: number,
   dp: number,
+  cls: string,
   shouldPass: boolean
 ): { load: string; indicated: string; correction: string }[] {
-  const offset = shouldPass ? r(e * 0.1, dp) : r(e * 3, dp);
-  return loads.map((load) => ({
-    load: String(load),
-    indicated: String(r(load + offset, dp)),
-    correction: '0',
-  }));
+  return loads.map((load) => {
+    const mpe = mpeFactorFor(cls, load / e) * e;
+    const err = shouldPass ? randError(mpe, d, dp) : randFailError(mpe, d, dp);
+    return {
+      load: String(load),
+      indicated: String(r(load + err, dp)),
+      correction: '0',
+    };
+  });
 }
 
 export function buildAllObservations(inst: InstrumentInfo | undefined, shouldPass = true) {
