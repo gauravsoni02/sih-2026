@@ -738,7 +738,10 @@ export default function ReportDetail() {
       queryClient.invalidateQueries({ queryKey: ['report-preview', id] });
       messageApi.success('Report marked as reviewed');
     },
-    onError: () => messageApi.error('Review failed'),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      messageApi.error(detail || 'Review failed — could not reach the server');
+    },
   });
 
   const approveMutation = useMutation({
@@ -748,7 +751,10 @@ export default function ReportDetail() {
       queryClient.invalidateQueries({ queryKey: ['report-preview', id] });
       messageApi.success('Report approved — certificate re-signed');
     },
-    onError: () => messageApi.error('Approval failed'),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      messageApi.error(detail || 'Approval failed — could not reach the server');
+    },
   });
 
   const handleDownload = async (format: 'pdf' | 'docx') => {
