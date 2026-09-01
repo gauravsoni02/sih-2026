@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.instruments.serializers import InstrumentSerializer
 from .models import TestObservation, TestResult, TestSession
 
 
@@ -32,6 +33,7 @@ class TestSessionSerializer(serializers.ModelSerializer):
     instrument_display = serializers.CharField(
         source='instrument.__str__', read_only=True
     )
+    instrument_detail = InstrumentSerializer(source='instrument', read_only=True)
     laboratory_name = serializers.CharField(
         source='laboratory.name', read_only=True
     )
