@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Form, Select, DatePicker, InputNumber, Button } from 'antd';
 import dayjs from 'dayjs';
 import { fetchInstruments } from '@/api/instruments';
+import { fetchLaboratories } from '@/api/laboratory';
 import { createSession } from '@/api/sessions';
 import { useAuthStore } from '@/store/authStore';
 import PageHeader from '@/components/common/PageHeader';
@@ -23,6 +24,11 @@ export default function SessionCreate() {
   const { data: instrumentsData } = useQuery({
     queryKey: ['instruments', 'all'],
     queryFn: () => fetchInstruments({ page_size: '1000' }),
+  });
+
+  const { data: laboratories } = useQuery({
+    queryKey: ['laboratories'],
+    queryFn: fetchLaboratories,
   });
 
   const mutation = useMutation({
@@ -48,7 +54,7 @@ export default function SessionCreate() {
     const verType = getVerificationTypeForEvaluation(evalType);
     mutation.mutate({
       instrument: values.instrument as number,
-      laboratory: user?.laboratory ?? undefined,
+      laboratory: values.laboratory as number,
       engineer: user?.id,
       session_date: (values.session_date as dayjs.Dayjs).format('YYYY-MM-DD'),
       temperature_start: values.temperature_start ? String(values.temperature_start) : null,
@@ -63,6 +69,11 @@ export default function SessionCreate() {
   const instrumentOptions = (instrumentsData?.results ?? []).map((inst) => ({
     value: inst.id,
     label: `${inst.manufacturer} ${inst.model_name} — ${inst.serial_number} (Class ${inst.accuracy_class})`,
+  }));
+
+  const labOptions = (laboratories ?? []).map((lab) => ({
+    value: lab.id,
+    label: `${lab.name} — ${lab.lab_code}`,
   }));
 
   const evalTypeOptions = getEvaluationTypes().map((et) => ({
@@ -102,6 +113,14 @@ export default function SessionCreate() {
               optionFilterProp="label"
               options={instrumentOptions}
               placeholder="Search by manufacturer, model, or serial..."
+            />
+          </Form.Item>
+          <Form.Item label="Laboratory" name="laboratory" rules={[{ required: true, message: 'Required' }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={labOptions}
+              placeholder="Select laboratory"
             />
           </Form.Item>
           <Form.Item label="Evaluation type (R 76-2)" name="evaluation_type" rules={[{ required: true, message: 'Required' }]}>
