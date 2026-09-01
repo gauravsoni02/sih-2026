@@ -51,7 +51,7 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <img src="/logo.png" alt="76 Labs" style={{ height: 64, marginBottom: 12 }} />
           <h1 style={{ fontSize: 16, fontWeight: 500, color: '#666666', margin: 0 }}>
-            NAWI Test Report Generator
+            Test Report Generator
           </h1>
         </div>
         <Form layout="vertical" onFinish={onFinish} requiredMark={false}>

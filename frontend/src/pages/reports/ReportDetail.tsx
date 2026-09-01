@@ -707,7 +707,7 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
         <span>Issue No: {orgSettings?.doc_issue_number || '01'}</span>
         <span>Issue Date: {orgSettings?.doc_issue_date || '01.01.2026'}</span>
         <span>Rev No: {orgSettings?.doc_rev_number || '00'}</span>
-        <span>NAWI Test Report Generator</span>
+        <span>76 Labs Test Report Generator</span>
       </div>
     </div>
   );

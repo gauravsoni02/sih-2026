@@ -95,7 +95,7 @@ export default function VerifyCertificate() {
           Certificate Verification
         </h1>
         <div style={{ color: '#888', fontSize: 13 }}>
-          76 Labs — NAWI Test Report Generator — OIML R 76-1:2006
+          76 Labs — OIML R 76-1:2006
         </div>
       </div>
 

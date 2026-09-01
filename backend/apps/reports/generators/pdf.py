@@ -547,7 +547,7 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         )
         canvas.drawRightString(
             PAGE_W - MARGIN_RIGHT, y_bot,
-            f'NAWI Test Report Generator · Software v{software_version}',
+            f'76 Labs Test Report Generator · Software v{software_version}',
         )
         canvas.restoreState()
 

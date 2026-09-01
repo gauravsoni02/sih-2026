@@ -1,6 +1,6 @@
 # Setup Guide
 
-Step-by-step instructions for setting up the NAWI Test Report Generator on your local machine.
+Step-by-step instructions for setting up 76 Labs on your local machine.
 
 ---
 

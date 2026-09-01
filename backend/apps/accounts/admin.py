@@ -9,5 +9,5 @@ class UserAdmin(BaseUserAdmin):
     list_display = ('username', 'email', 'role', 'laboratory', 'is_active')
     list_filter = ('role', 'is_active', 'laboratory')
     fieldsets = BaseUserAdmin.fieldsets + (
-        ('NAWI', {'fields': ('role', 'laboratory')}),
+        ('76 Labs', {'fields': ('role', 'laboratory')}),
     )

@@ -44,7 +44,7 @@ def _ensure_signing_material() -> tuple[Path, Path]:
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, 'IN'),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Legal Metrology Laboratory'),
-        x509.NameAttribute(NameOID.COMMON_NAME, 'NAWI Test Report Generator'),
+        x509.NameAttribute(NameOID.COMMON_NAME, '76 Labs Test Report Generator'),
     ])
     now = datetime.now(timezone.utc)
     cert = (
