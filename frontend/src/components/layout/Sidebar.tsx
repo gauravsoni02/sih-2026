@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Menu } from 'antd';
 import {
   DashboardOutlined,
@@ -28,6 +29,7 @@ const menuItems = [
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const { sidebarCollapsed, setSidebarCollapsed } = useUiStore();
 
@@ -89,6 +91,7 @@ export default function Sidebar() {
             label: 'Logout',
             onClick: () => {
               logout();
+              queryClient.clear();
               navigate('/login');
             },
           },

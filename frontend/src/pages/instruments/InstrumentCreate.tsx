@@ -5,6 +5,7 @@ import { Form, Input, InputNumber, Select, Switch, Button, Modal } from 'antd';
 import { createInstrument } from '@/api/instruments';
 import PageHeader from '@/components/common/PageHeader';
 import { DEMO_INSTRUMENTS } from '@/utils/demoData';
+import { loadPrefs } from '@/utils/prefs';
 import type { InstrumentCreatePayload } from '@/types/instrument';
 
 export default function InstrumentCreate() {
@@ -82,7 +83,7 @@ export default function InstrumentCreate() {
         }
       />
       <div style={{ maxWidth: 560 }}>
-        <Form form={form} layout="vertical" onFinish={onFinish} requiredMark="optional" initialValues={{ unit: 'g', is_multi_interval: false }}>
+        <Form form={form} layout="vertical" onFinish={onFinish} requiredMark="optional" initialValues={{ unit: loadPrefs().defaultUnit, accuracy_class: loadPrefs().defaultAccuracyClass, is_multi_interval: false }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, marginTop: 0 }}>Identification</h2>
 
           <Form.Item label="Manufacturer" name="manufacturer" rules={[{ required: true, message: 'Required' }]}>

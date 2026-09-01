@@ -347,6 +347,12 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     software_version = context.get('software_version', '1.0')
     test_sections = context.get('test_sections', [])
     compliance_summary = context.get('compliance_summary', [])
+    jurisdiction = context.get(
+        'jurisdiction', 'MINISTRY OF CONSUMER AFFAIRS, FOOD & PUBLIC DISTRIBUTION')
+    doc_control_number = context.get('doc_control_number', 'LM-FMT-NAWI-01')
+    doc_issue_number = context.get('doc_issue_number', '01')
+    doc_rev_number = context.get('doc_rev_number', '00')
+    logo_data_uri = context.get('logo_data_uri', '')
 
     # Format session date nicely
     try:
@@ -403,8 +409,8 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     _page_count_holder: dict[str, int] = {'total': 0}
 
     DOC_CONTROL = (
-        'Doc No: LM-FMT-NAWI-01  |  Issue No: 01  |  '
-        f'Rev No: 00  |  Software v{software_version}'
+        f'Doc No: {doc_control_number}  |  Issue No: {doc_issue_number}  |  '
+        f'Rev No: {doc_rev_number}  |  Software v{software_version}'
     )
 
     def _draw_header_footer(canvas, doc):
@@ -470,13 +476,31 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     # ===================================================================
     # PAGE 1 -- Title / header block
     # ===================================================================
-    story.append(Paragraph('GOVERNMENT OF INDIA', sty_govt))
-    story.append(Paragraph(
-        'MINISTRY OF CONSUMER AFFAIRS, FOOD &amp; PUBLIC DISTRIBUTION', sty_govt))
-    story.append(Paragraph('DEPARTMENT OF CONSUMER AFFAIRS', sty_govt))
-    story.append(Spacer(1, 6))
-    story.append(Paragraph('LEGAL METROLOGY LABORATORY', sty_lab))
-    story.append(Paragraph(f'{lab_name}, {lab_address}', sty_lab_addr))
+    jurisdiction_escaped = jurisdiction.replace('&', '&amp;')
+    header_flowables = [
+        Paragraph('GOVERNMENT OF INDIA', sty_govt),
+        Paragraph(jurisdiction_escaped, sty_govt),
+        Paragraph('DEPARTMENT OF CONSUMER AFFAIRS', sty_govt),
+        Spacer(1, 6),
+        Paragraph('LEGAL METROLOGY LABORATORY', sty_lab),
+        Paragraph(f'{lab_name}, {lab_address}', sty_lab_addr),
+    ]
+    logo_img = _load_logo_image(logo_data_uri) if logo_data_uri else None
+    if logo_img is not None:
+        # Logo top-left (max 60x60px ~ 16mm), header text block beside it
+        hdr_tbl = Table(
+            [[logo_img, header_flowables]],
+            colWidths=[20 * mm, FRAME_W - 20 * mm],
+        )
+        hdr_tbl.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        story.append(hdr_tbl)
+    else:
+        story.extend(header_flowables)
     story.append(Spacer(1, 2))
     story.append(HRFlowable(
         width='100%', thickness=1, color=CLR_RULE,
@@ -643,22 +667,8 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         spaceAfter=4, spaceBefore=0,
     ))
 
-    remarks = [
-        'This test report is issued based on the test results obtained during '
-        'the evaluation of the instrument described above.',
-        'The results reported herein relate only to the instrument tested '
-        'under the conditions specified.',
-        'This test report shall not be reproduced except in full, without '
-        'the written approval of the issuing laboratory.',
-        'The expanded measurement uncertainty is estimated at a confidence '
-        'level of approximately 95% with a coverage factor k=2.',
-        'All tests have been performed in accordance with OIML R 76-1:2006 '
-        'and the applicable Indian Legal Metrology standards.',
-        'The instrument was tested in its normal operating position on a '
-        'stable, level surface.',
-        'Reference standards used are traceable to National / International '
-        'Standards.',
-    ]
+    from apps.reports.generators import DEFAULT_REMARKS
+    remarks = context.get('remarks') or DEFAULT_REMARKS
 
     remark_data = []
     for idx, remark in enumerate(remarks, 1):
@@ -881,6 +891,32 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     # Build
     # -------------------------------------------------------------------
     doc.build(story)
+
+
+def _load_logo_image(logo_data_uri: str):
+    """Decode a data: URI into a ReportLab Image capped at ~16mm square.
+
+    Returns None on any failure so the certificate renders without a logo.
+    """
+    try:
+        import base64
+        import io
+
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import Image
+
+        b64 = logo_data_uri.split(',', 1)[1]
+        buf = io.BytesIO(base64.b64decode(b64))
+        reader = ImageReader(buf)
+        w, h = reader.getSize()
+        max_side = 16 * mm
+        scale = min(max_side / w, max_side / h)
+        buf.seek(0)
+        return Image(buf, width=w * scale, height=h * scale)
+    except Exception:
+        logger.exception("Logo decoding failed; certificate continues without it")
+        return None
 
 
 def _build_qr_block(verify_url: str, caption_style):

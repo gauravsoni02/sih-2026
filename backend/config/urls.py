@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from django.urls import include, path
 
 from apps.engine.config_loader import get_config, get_r76_2_config
+from apps.laboratory.views import org_settings_view
 
 
 def standard_config_view(request):
@@ -21,4 +22,5 @@ urlpatterns = [
     path('api/reports/', include('apps.reports.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
     path('api/standard-config/', standard_config_view),
+    path('api/settings/org/', org_settings_view),
 ]

@@ -13,3 +13,8 @@ export async function fetchLaboratories(): Promise<Laboratory[]> {
   const res = await apiClient.get<{ results: Laboratory[] }>('/laboratories/', { params: { page_size: '100' } });
   return res.data.results;
 }
+
+export async function updateLaboratory(id: number, data: Partial<Laboratory>): Promise<Laboratory> {
+  const res = await apiClient.patch<Laboratory>(`/laboratories/${id}/`, data);
+  return res.data;
+}

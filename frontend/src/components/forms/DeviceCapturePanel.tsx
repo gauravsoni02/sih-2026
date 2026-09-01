@@ -7,6 +7,7 @@ import {
   WebSerialSource,
 } from '@/services/readingSource';
 import type { Reading, ReadingSource, SourceKind, SourceState } from '@/services/readingSource';
+import { loadPrefs } from '@/utils/prefs';
 
 interface Props {
   unit: string;
@@ -44,7 +45,9 @@ export default function DeviceCapturePanel({
 
   const connect = async () => {
     const src: ReadingSource =
-      kind === 'serial' ? new WebSerialSource() : new SimulatedSource();
+      kind === 'serial'
+        ? new WebSerialSource(loadPrefs().serialBaudRate)
+        : new SimulatedSource();
     sourceRef.current = src;
     src.onState(setState);
     src.onReading(setReading);

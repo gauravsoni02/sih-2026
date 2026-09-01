@@ -320,8 +320,10 @@ def _add_header_footer(doc, context: dict):
 
         # Document control line
         run = fp.add_run(
-            f"Doc No: {DOC_CONTROL_NO}  |  Issue No: {DOC_ISSUE_NO}  |  "
-            f"Issue Date: {DOC_ISSUE_DATE}  |  Rev No: {DOC_REV_NO}"
+            f"Doc No: {context.get('doc_control_number', DOC_CONTROL_NO)}  |  "
+            f"Issue No: {context.get('doc_issue_number', DOC_ISSUE_NO)}  |  "
+            f"Issue Date: {DOC_ISSUE_DATE}  |  "
+            f"Rev No: {context.get('doc_rev_number', DOC_REV_NO)}"
         )
         run.font.size = Pt(7)
         run.font.color.rgb = GRAY_COLOR
@@ -693,11 +695,31 @@ def generate_docx(report) -> str:
     # PAGE 1 --- Certificate Header + Instrument Details
     # ===============================================================
 
+    # --- Optional lab logo (top-left) ---
+    logo_data_uri = context.get('logo_data_uri', '')
+    if logo_data_uri:
+        try:
+            import base64
+            import io
+
+            from docx.shared import Inches
+
+            b64 = logo_data_uri.split(',', 1)[1]
+            buf = io.BytesIO(base64.b64decode(b64))
+            p_logo = doc.add_paragraph()
+            p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p_logo.add_run().add_picture(buf, height=Inches(0.6))
+        except Exception:
+            logger.exception("Logo decoding failed for DOCX; continuing without it")
+
     # --- Government header block (centred) ---
     _add_centered_text(doc, 'GOVERNMENT OF INDIA', size=12, bold=True,
                         uppercase=True, space_after=2, space_before=0)
-    _add_centered_text(doc, 'MINISTRY OF CONSUMER AFFAIRS, FOOD & PUBLIC DISTRIBUTION',
-                        size=12, bold=True, uppercase=True, space_after=2)
+    _add_centered_text(
+        doc,
+        context.get('jurisdiction',
+                    'MINISTRY OF CONSUMER AFFAIRS, FOOD & PUBLIC DISTRIBUTION'),
+        size=12, bold=True, uppercase=True, space_after=2)
     _add_centered_text(doc, 'DEPARTMENT OF CONSUMER AFFAIRS',
                         size=12, bold=True, uppercase=True, space_after=2)
     _add_centered_text(doc, 'LEGAL METROLOGY LABORATORY',
@@ -827,7 +849,8 @@ def generate_docx(report) -> str:
     remarks_table.alignment = WD_TABLE_ALIGNMENT.LEFT
     cell = remarks_table.rows[0].cells[0]
     cell.text = ''
-    for idx, remark in enumerate(IMPORTANT_REMARKS, start=1):
+    remarks_list = context.get('remarks') or IMPORTANT_REMARKS
+    for idx, remark in enumerate(remarks_list, start=1):
         p = cell.add_paragraph() if idx > 1 else cell.paragraphs[0]
         p.paragraph_format.space_after = Pt(2)
         p.paragraph_format.space_before = Pt(2)
@@ -1119,8 +1142,10 @@ def generate_docx(report) -> str:
     p_doc_ctrl.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_doc_ctrl.paragraph_format.space_before = Pt(4)
     run_dc = p_doc_ctrl.add_run(
-        f"Doc No: {DOC_CONTROL_NO}  |  Issue No: {DOC_ISSUE_NO}  |  "
-        f"Issue Date: {DOC_ISSUE_DATE}  |  Rev No: {DOC_REV_NO}"
+        f"Doc No: {context.get('doc_control_number', DOC_CONTROL_NO)}  |  "
+        f"Issue No: {context.get('doc_issue_number', DOC_ISSUE_NO)}  |  "
+        f"Issue Date: {DOC_ISSUE_DATE}  |  "
+        f"Rev No: {context.get('doc_rev_number', DOC_REV_NO)}"
     )
     run_dc.font.size = Pt(8)
     run_dc.font.color.rgb = GRAY_COLOR

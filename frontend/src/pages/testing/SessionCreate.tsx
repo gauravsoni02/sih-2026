@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store/authStore';
 import PageHeader from '@/components/common/PageHeader';
 import { DEMO_SESSION } from '@/utils/demoData';
 import { getEvaluationTypes, getVerificationTypeForEvaluation } from '@/utils/mpe';
+import { loadPrefs } from '@/utils/prefs';
 
 export default function SessionCreate() {
   const navigate = useNavigate();
@@ -103,7 +104,7 @@ export default function SessionCreate() {
           initialValues={{
             instrument: preselectedInstrument,
             session_date: dayjs(),
-            evaluation_type: 'initial_verification',
+            evaluation_type: loadPrefs().defaultEvaluationType,
           }}
         >
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, marginTop: 0 }}>Instrument</h2>

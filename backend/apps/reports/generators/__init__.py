@@ -15,10 +15,31 @@ VERIFICATION_TYPE_LABELS = {
 }
 
 
+DEFAULT_REMARKS = [
+    'This test report is issued based on the test results obtained during '
+    'the evaluation of the instrument described above.',
+    'The results reported herein relate only to the instrument tested '
+    'under the conditions specified.',
+    'This test report shall not be reproduced except in full, without '
+    'the written approval of the issuing laboratory.',
+    'The expanded measurement uncertainty is estimated at a confidence '
+    'level of approximately 95% with a coverage factor k=2.',
+    'All tests have been performed in accordance with OIML R 76-1:2006 '
+    'and the applicable Indian Legal Metrology standards.',
+    'The instrument was tested in its normal operating position on a '
+    'stable, level surface.',
+    'Reference standards used are traceable to National / International '
+    'Standards.',
+]
+
+
 def _build_report_context(report) -> dict[str, Any]:
+    from apps.laboratory.models import OrgSettings
+
     session = report.session
     instrument = session.instrument
     laboratory = session.laboratory
+    org = OrgSettings.load()
 
     engineer_name = session.engineer.get_full_name() or session.engineer.username
     approved_by_name = ''
@@ -56,4 +77,10 @@ def _build_report_context(report) -> dict[str, Any]:
         'verify_url': (
             f"{settings.FRONTEND_URL.rstrip('/')}/verify/{report.verification_code}"
         ),
+        'jurisdiction': org.jurisdiction,
+        'doc_control_number': org.doc_control_number,
+        'doc_issue_number': org.doc_issue_number,
+        'doc_rev_number': org.doc_rev_number,
+        'remarks': org.default_remarks or DEFAULT_REMARKS,
+        'logo_data_uri': org.logo_data_uri,
     }

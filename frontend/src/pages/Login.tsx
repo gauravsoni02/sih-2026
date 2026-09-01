@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Button } from 'antd';
 import { login } from '@/api/auth';
 import { useAuthStore } from '@/store/authStore';
@@ -7,6 +8,7 @@ import { getMe } from '@/api/auth';
 
 export default function Login() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const setUser = useAuthStore((s) => s.setUser);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -19,6 +21,10 @@ export default function Login() {
       localStorage.setItem('access_token', tokens.access);
       localStorage.setItem('refresh_token', tokens.refresh);
       const user = await getMe();
+      // Drop everything cached for the previous account, then seed the
+      // fresh profile so useAuth's ['me'] query can't resurrect stale data.
+      queryClient.clear();
+      queryClient.setQueryData(['me'], user);
       setUser(user);
       navigate('/');
     } catch {

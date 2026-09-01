@@ -53,8 +53,11 @@ class Report(TimeStampedModel):
     @staticmethod
     def generate_report_number(lab_code: str) -> str:
         import datetime
+
+        from apps.laboratory.models import OrgSettings
         year = datetime.date.today().year
-        prefix = f"NAWI/{lab_code}/{year}/"
+        org_prefix = OrgSettings.load().report_prefix or 'NAWI'
+        prefix = f"{org_prefix}/{lab_code}/{year}/"
         last = (
             Report.objects
             .filter(report_number__startswith=prefix)
