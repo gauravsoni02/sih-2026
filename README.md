@@ -10,11 +10,15 @@ Built for government metrology laboratories in India under the Legal Metrology A
 * **Run test sessions** — enter observations for 13+ test types (weighing performance, eccentricity, repeatability, discrimination, sensitivity, tare, creep, temperature, tilt, power supply, durability, span stability, zero tracking)
 * **Compute errors automatically** — OIML R 76 MPE lookup for all 4 accuracy classes, both initial and subsequent verification, multi-interval support
 * **Live error feedback** — client-side error calculation on every keystroke with pass/fail determination and an interactive error-vs-load chart with MPE envelope
-* **Generate PDF/DOCX reports** — standardized test reports with cover page, instrument details, environmental conditions, measurement tables, compliance summary, and signatory block
+* **Generate PDF/DOCX reports** — NABL-style calibration certificates with cover page, instrument details, environmental conditions, measurement tables, compliance summary, and signatory block
+* **QR certificate verification** — every certificate carries a QR code linking to a public verification page; anyone can confirm a certificate is genuine without logging in
+* **Cryptographically signed PDFs** — X.509 digital signature embedded in every certificate; any tampering after issuance invalidates the signature
+* **Measurement uncertainty budget** — EURAMET cg-18 style uncertainty (repeatability, resolution, reference weights) expanded with k=2, printed per test point and as a full budget table
+* **Live device capture** — read a real balance over USB via the Web Serial API, or use the built-in simulated balance for demos
 * **In-browser report preview** — print-ready formal report layout with Government of India header
 * **Dashboard analytics** — metric cards with trends, testing trend charts (pass/fail stacked bars), pass/fail pie chart, measurement error profile
 * **Activity log** — audit trail of all changes with search and severity filtering
-* **Settings** — profile, laboratory, preferences, report configuration, connections, about
+* **Settings** — lab branding (logo, report prefix, document control), testing defaults, serial device configuration
 
 ## Tech stack:
 
@@ -25,7 +29,7 @@ Built for government metrology laboratories in India under the Legal Metrology A
 | Charts           | Recharts                                                             |
 | Database         | PostgreSQL 16 (SQLite for development)                               |
 | Task queue       | Celery + Redis                                                       |
-| Reports          | WeasyPrint / ReportLab (PDF), python-docx (DOCX)                     |
+| Reports          | ReportLab (PDF), python-docx (DOCX), pyhanko (signing), qrcode       |
 | Auth             | djangorestframework-simplejwt                                        |
 | Audit            | django-auditlog                                                      |
 | Containerization | Docker, Docker Compose                                               |
