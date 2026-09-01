@@ -33,11 +33,11 @@ export default function SessionCreate() {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: Record<string, string[]> } })?.response?.data;
-      if (msg) {
+      if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
         const first = Object.entries(msg).map(([k, v]) => `${k}: ${Array.isArray(v) ? v[0] : v}`).join('; ');
         setError(first);
       } else {
-        setError('Failed to create session');
+        setError('Failed to create session. Please try again.');
       }
     },
   });

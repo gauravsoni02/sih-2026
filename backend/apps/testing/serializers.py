@@ -42,6 +42,10 @@ class TestSessionSerializer(serializers.ModelSerializer):
         read_only_fields = (
             'id', 'created_at', 'updated_at', 'is_deleted', 'overall_verdict',
         )
+        extra_kwargs = {
+            'laboratory': {'required': False, 'allow_null': True},
+            'engineer': {'required': False, 'allow_null': True},
+        }
 
 
 class TestSessionListSerializer(serializers.ModelSerializer):
