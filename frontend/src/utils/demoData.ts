@@ -4,6 +4,7 @@ interface InstrumentInfo {
   verification_scale_interval_e?: string;
   actual_scale_interval_d?: string;
   max_additive_tare?: string;
+  accuracy_class?: string;
 }
 
 export const DEMO_INSTRUMENTS = [
@@ -131,10 +132,10 @@ export function getDemoObservations(inst: InstrumentInfo | undefined, shouldPass
   const tPlus = parseFloat(inst?.max_additive_tare || '0');
   const halfMax = r(max / 2, decimalsFor(e));
   const eccLoad = r((max + tPlus) / 3, decimalsFor(e));
-  const dp = decimalsFor(e);
+  const dp = Math.max(decimalsFor(e), decimalsFor(d));
 
   return {
-    weighing_performance: getWeighingPerformanceDemo(min, max, e, dp, shouldPass),
+    weighing_performance: getWeighingPerformanceDemo(min, max, e, d, dp, inst?.accuracy_class || 'III', shouldPass),
     eccentricity: getEccentricityDemo(eccLoad, e, dp, shouldPass),
     repeatability: getRepeatabilityDemo(halfMax, e, dp, shouldPass),
     discrimination: getDiscriminationDemo(min, halfMax, max, d, dp, shouldPass),
@@ -150,16 +151,40 @@ export function getDemoObservations(inst: InstrumentInfo | undefined, shouldPass
   };
 }
 
-function getWeighingPerformanceDemo(min: number, max: number, e: number, dp: number, shouldPass: boolean) {
+function mpeFactorFor(accuracyClass: string, m: number): number {
+  // OIML R 76-1 Table 6 zone boundaries in number of intervals (m = load/e)
+  const zones: Record<string, [number, number]> = {
+    I: [50000, 200000],
+    II: [5000, 20000],
+    III: [500, 2000],
+    IIII: [50, 200],
+  };
+  const [z1, z2] = zones[accuracyClass] ?? zones.III;
+  return m <= z1 ? 0.5 : m <= z2 ? 1.0 : 1.5;
+}
+
+function getWeighingPerformanceDemo(min: number, max: number, e: number, d: number, dp: number, accuracyClass: string, shouldPass: boolean) {
   const loads = [min, r(max * 0.2, dp), r(max * 0.4, dp), r(max * 0.7, dp), max];
+  const mpeFactor = loads.map((load) => mpeFactorFor(accuracyClass, load / e));
+  // A real display indicates in multiples of d: quantize the error to d and
+  // aim for ~half the MPE so the profile is visible but always compliant.
+  const passError = (i: number, sign: number) => {
+    const mpe = mpeFactor[i] * e;
+    let err = Math.round((mpe * 0.5) / d) * d;
+    while (err > mpe + 1e-12) err -= d;
+    return r(sign * Math.max(err, 0), dp);
+  };
+  const failError = () => r(Math.round((e * 3) / d) * d, dp);
+  const signsInc = [0, 1, 1, -1, 1];
+  const signsDec = [1, -1, 1, 1, 0];
   const rows = [
     ...loads.map((load, i) => ({
       key: i + 1,
       direction: 'increasing' as const,
       test_point_load: String(load),
       indicated_value: String(shouldPass
-        ? r(load + e * [0, 0, 0.1, 0.1, 0.2][i], dp)
-        : r(load + e * 3, dp)),
+        ? r(load + passError(i, signsInc[i]), dp)
+        : r(load + failError(), dp)),
       correction: '0',
     })),
     ...[...loads].reverse().map((load, i) => ({
@@ -167,8 +192,8 @@ function getWeighingPerformanceDemo(min: number, max: number, e: number, dp: num
       direction: 'decreasing' as const,
       test_point_load: String(load),
       indicated_value: String(shouldPass
-        ? r(load + e * [0.2, 0.1, 0, 0, 0][i], dp)
-        : r(load + e * 3, dp)),
+        ? r(load + passError(loads.length - 1 - i, signsDec[i]), dp)
+        : r(load + failError(), dp)),
       correction: '0',
     })),
   ];
