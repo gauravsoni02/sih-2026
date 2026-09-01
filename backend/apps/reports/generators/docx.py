@@ -1077,6 +1077,40 @@ def generate_docx(report) -> str:
     doc.add_paragraph().paragraph_format.space_after = Pt(8)
 
     # ---------------------------------------------------------------
+    # QR code for public certificate verification
+    # ---------------------------------------------------------------
+    verify_url = context.get('verify_url')
+    if verify_url:
+        try:
+            import io
+
+            import qrcode
+            from docx.shared import Inches
+
+            qr = qrcode.QRCode(border=1, box_size=6)
+            qr.add_data(verify_url)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color='black', back_color='white')
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            buf.seek(0)
+
+            p_qr = doc.add_paragraph()
+            p_qr.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_qr.add_run().add_picture(buf, width=Inches(0.9))
+
+            p_qr_cap = doc.add_paragraph()
+            p_qr_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_qr_cap.add_run(
+                f"Scan to verify the authenticity of this certificate\n{verify_url}"
+            )
+            run_cap.font.size = Pt(7)
+            run_cap.font.color.rgb = GRAY_COLOR
+            run_cap.font.name = 'Calibri'
+        except Exception:
+            logger.exception("QR code generation failed for DOCX; continuing without it")
+
+    # ---------------------------------------------------------------
     # Document Control Footer
     # ---------------------------------------------------------------
     _add_horizontal_rule(doc)

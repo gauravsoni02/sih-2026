@@ -18,6 +18,7 @@ import ReportSearch from '@/pages/reports/ReportSearch';
 import DemoSamples from '@/pages/DemoSamples';
 import ActivityLog from '@/pages/ActivityLog';
 import Settings from '@/pages/Settings';
+import VerifyCertificate from '@/pages/VerifyCertificate';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +58,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/verify/:code" element={<VerifyCertificate />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/instruments" element={<InstrumentList />} />

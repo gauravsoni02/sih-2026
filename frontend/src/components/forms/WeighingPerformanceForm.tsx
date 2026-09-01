@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Table, InputNumber, Button, Select } from 'antd';
 import { submitObservations } from '@/api/sessions';
 import StatusTag from '@/components/common/StatusTag';
+import DeviceCapturePanel from '@/components/forms/DeviceCapturePanel';
 import { getDemoObservations } from '@/utils/demoData';
 import { getMpe } from '@/utils/mpe';
 import MeasurementErrorChart from '@/components/charts/MeasurementErrorChart';
@@ -97,7 +98,7 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
     return wpResults
       .filter((r) => r.computed_error && r.mpe_applicable)
       .map((r) => ({
-        nominalLoad: parseFloat(r.remarks?.match(/load=([^ ]+)/)?.[1] || '0'),
+        nominalLoad: parseFloat(r.test_point_load ?? '0'),
         error: parseFloat(r.computed_error),
         upperMpe: parseFloat(r.mpe_applicable),
         lowerMpe: -parseFloat(r.mpe_applicable),
@@ -114,6 +115,17 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
 
   const updateRow = (key: number, field: keyof Row, value: string) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  };
+
+  // The row the device capture fills: first row with a reference load entered
+  // but no indicated value yet.
+  const captureRow = rows.find((r) => r.test_point_load && !r.indicated_value);
+  const captureRowIndex = captureRow ? rows.indexOf(captureRow) : -1;
+
+  const handleCapture = (value: string) => {
+    if (captureRow) {
+      updateRow(captureRow.key, 'indicated_value', value);
+    }
   };
 
   const addRow = () => {
@@ -245,8 +257,8 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
 
   const resultColumns = [
     { title: '#', width: 50, render: (_: unknown, __: unknown, i: number) => i + 1 },
-    { title: 'Load', dataIndex: 'computed_error', key: 'load', width: 100,
-      render: (_: unknown, r: TestResult) => r.remarks?.match(/load=([^ ]+)/)?.[1] || '—' },
+    { title: 'Load', dataIndex: 'test_point_load', key: 'load', width: 100,
+      render: (v: string | null) => v ?? '—' },
     {
       title: 'Error',
       dataIndex: 'computed_error',
@@ -271,6 +283,17 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
 
   return (
     <div>
+      <DeviceCapturePanel
+        unit={unit}
+        scaleInterval={e || 0.01}
+        targetLoad={captureRow ? parseFloat(captureRow.test_point_load) : 0}
+        captureHint={
+          captureRowIndex >= 0
+            ? `→ fills row ${captureRowIndex + 1}`
+            : 'enter a reference load first'
+        }
+        onCapture={handleCapture}
+      />
       <Table
         dataSource={rows}
         columns={columns}

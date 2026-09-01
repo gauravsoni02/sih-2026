@@ -201,17 +201,17 @@ class TestPDFGenerator(TestCase):
         wp_section = next((s for s in sections if s['title'] == 'Weighing Performance Test'), None)
         self.assertIsNotNone(wp_section)
         self.assertEqual(len(wp_section['results']), 5)
-        self.assertEqual(wp_section['columns'], ['Test Load', 'Indicated', 'Error', 'MPE', 'Status'])
+        self.assertEqual(wp_section['test_type'], 'weighing_performance')
 
         ecc_section = next((s for s in sections if s['title'] == 'Eccentricity Test'), None)
         self.assertIsNotNone(ecc_section)
         self.assertEqual(len(ecc_section['results']), 5)
-        self.assertIn('Position', ecc_section['columns'])
+        self.assertEqual(ecc_section['test_type'], 'eccentricity')
 
         rep_section = next((s for s in sections if s['title'] == 'Repeatability Test'), None)
         self.assertIsNotNone(rep_section)
         self.assertEqual(len(rep_section['results']), 6)
-        self.assertIn('Trial', rep_section['columns'])
+        self.assertEqual(rep_section['test_type'], 'repeatability')
 
     @override_settings(REPORT_STORAGE_PATH=None)
     def test_pdf_compliance_summary(self) -> None:

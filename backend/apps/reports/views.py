@@ -6,8 +6,9 @@ from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -215,6 +216,50 @@ def search_reports(request: Request) -> Response:
         })
 
     return Response({'count': qs.count(), 'results': results})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@throttle_classes([AnonRateThrottle])
+def verify_report(request: Request, code: str) -> Response:
+    """Public certificate verification — no authentication required.
+
+    Returns only what a certificate holder can already read off the paper,
+    so no sensitive data is exposed.
+    """
+    try:
+        report = Report.objects.select_related(
+            'session__instrument', 'session__laboratory', 'approved_by',
+        ).get(verification_code=code, is_deleted=False)
+    except Report.DoesNotExist:
+        return Response(
+            {'valid': False, 'detail': 'No certificate found for this code.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    inst = report.session.instrument
+    lab = report.session.laboratory
+    return Response({
+        'valid': True,
+        'report_number': report.report_number,
+        'status': report.status,
+        'overall_verdict': report.overall_verdict,
+        'version': report.version,
+        'issued_at': report.created_at.isoformat(),
+        'approved': report.status == ReportStatus.APPROVED,
+        'approved_at': report.approved_at.isoformat() if report.approved_at else None,
+        'session_date': str(report.session.session_date),
+        'instrument': {
+            'manufacturer': inst.manufacturer,
+            'model_name': inst.model_name,
+            'serial_number': inst.serial_number,
+            'accuracy_class': inst.accuracy_class,
+        },
+        'laboratory': {
+            'name': lab.name,
+            'accreditation_number': lab.accreditation_number,
+        },
+    })
 
 
 @api_view(['POST'])

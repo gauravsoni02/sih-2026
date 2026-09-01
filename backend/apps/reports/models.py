@@ -1,3 +1,5 @@
+import secrets
+
 from django.conf import settings
 from django.db import models
 
@@ -5,8 +7,16 @@ from apps.engine.constants import ComplianceStatus, ReportStatus
 from common.models import TimeStampedModel
 
 
+def _make_verification_code() -> str:
+    return secrets.token_hex(8)
+
+
 class Report(TimeStampedModel):
     report_number = models.CharField(max_length=50, unique=True)
+    verification_code = models.CharField(
+        max_length=32, unique=True, default=_make_verification_code,
+        editable=False,
+    )
     session = models.ForeignKey(
         'testing.TestSession',
         on_delete=models.PROTECT,

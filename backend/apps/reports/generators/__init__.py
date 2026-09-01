@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 
 EVAL_TYPE_LABELS = {
     'type_evaluation': 'Type Evaluation',
@@ -50,4 +52,8 @@ def _build_report_context(report) -> dict[str, Any]:
         'approved_by_name': approved_by_name,
         'approved_at': approved_at,
         'software_version': '1.0',
+        'verification_code': report.verification_code,
+        'verify_url': (
+            f"{settings.FRONTEND_URL.rstrip('/')}/verify/{report.verification_code}"
+        ),
     }

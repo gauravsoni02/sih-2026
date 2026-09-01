@@ -869,10 +869,57 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     ]))
     story.append(sig_tbl)
 
+    # QR code for public certificate verification
+    verify_url = context.get('verify_url')
+    if verify_url:
+        qr_flowable = _build_qr_block(verify_url, sty_cell_center)
+        if qr_flowable is not None:
+            story.append(Spacer(1, 18))
+            story.append(qr_flowable)
+
     # -------------------------------------------------------------------
     # Build
     # -------------------------------------------------------------------
     doc.build(story)
+
+
+def _build_qr_block(verify_url: str, caption_style):
+    """Centered QR code linking to the public verification page.
+
+    Returns None if the qrcode library is unavailable so certificate
+    generation never fails because of the QR.
+    """
+    try:
+        import io
+
+        import qrcode
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image, Paragraph, Table, TableStyle
+
+        qr = qrcode.QRCode(border=1, box_size=6)
+        qr.add_data(verify_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color='black', back_color='white')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+
+        qr_img = Image(buf, width=22 * mm, height=22 * mm)
+        caption = Paragraph(
+            'Scan to verify the authenticity of this certificate<br/>'
+            f'<font size="6" color="#666666">{verify_url}</font>',
+            caption_style,
+        )
+        tbl = Table([[qr_img], [caption]], colWidths=[None])
+        tbl.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ]))
+        return tbl
+    except Exception:
+        logger.exception("QR code generation failed; certificate continues without it")
+        return None
 
 
 # ===================================================================
@@ -893,19 +940,17 @@ def _add_weighing_table(
 ) -> None:
     """Weighing Performance: Sr No, Test Point, Mass Values, Indicated Value,
     Error, MPE, Result."""
-    from reportlab.platypus import Table, TableStyle
+    from reportlab.platypus import Paragraph, Table, TableStyle
 
     header = [
-        sty_hdr.__class__(text='<b>Sr No</b>', style=sty_hdr),
-        sty_hdr.__class__(text='<b>Test Point</b>', style=sty_hdr),
-        sty_hdr.__class__(text='<b>Ref. Mass Value</b>', style=sty_hdr),
-        sty_hdr.__class__(text='<b>Indicated Value</b>', style=sty_hdr),
-        sty_hdr.__class__(text='<b>Error</b>', style=sty_hdr),
-        sty_hdr.__class__(text=u'<b>MPE (±)</b>', style=sty_hdr),
-        sty_hdr.__class__(text='<b>Result</b>', style=sty_hdr),
+        Paragraph('<b>Sr No</b>', sty_hdr),
+        Paragraph('<b>Test Point</b>', sty_hdr),
+        Paragraph('<b>Ref. Mass Value</b>', sty_hdr),
+        Paragraph('<b>Indicated Value</b>', sty_hdr),
+        Paragraph('<b>Error</b>', sty_hdr),
+        Paragraph(u'<b>MPE (±)</b>', sty_hdr),
+        Paragraph('<b>Result</b>', sty_hdr),
     ]
-
-    from reportlab.platypus import Paragraph
     rows = [header]
     for idx, r in enumerate(results, 1):
         obs = r.observation

@@ -87,6 +87,7 @@ export interface TestResult {
   id: number;
   session: number;
   test_type: TestType;
+  test_point_load: string | null;
   computed_error: string;
   mpe_applicable: string;
   compliance_status: ComplianceStatus;

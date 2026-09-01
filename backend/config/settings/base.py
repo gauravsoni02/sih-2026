@@ -136,6 +136,9 @@ CELERY_TIMEZONE = TIME_ZONE
 # Report storage
 REPORT_STORAGE_PATH = config('REPORT_STORAGE_PATH', default=str(BASE_DIR / 'reports'))
 
+# Public frontend URL, used for QR verification links on certificates
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
+
 # CORS
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',

@@ -141,7 +141,7 @@ export default function SessionDetail() {
           r.mpe_applicable,
       )
       .map((r) => ({
-        nominalLoad: parseFloat(r.remarks?.match(/load=([^ ]+)/)?.[1] || '0'),
+        nominalLoad: parseFloat(r.test_point_load ?? '0'),
         error: parseFloat(r.computed_error),
         upperMpe: parseFloat(r.mpe_applicable),
         lowerMpe: -parseFloat(r.mpe_applicable),
