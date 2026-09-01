@@ -274,6 +274,17 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
       render: (v: string) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{v}</span>,
     },
     {
+      title: 'U (±) k=2',
+      dataIndex: 'expanded_uncertainty',
+      width: 100,
+      align: 'right' as const,
+      render: (v: string | null | undefined) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: '#666666' }}>
+          {v != null ? `±${v}` : '—'}
+        </span>
+      ),
+    },
+    {
       title: 'Status',
       dataIndex: 'compliance_status',
       width: 80,
