@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-The frontend dev server runs at `http://localhost:5173` and proxies API requests to `http://localhost:8000`.
+The frontend dev server runs at `http://localhost:5173` and proxies API requests to `http://localhost:8000`
 
 ### Docker:
 
