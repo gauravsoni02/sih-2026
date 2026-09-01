@@ -7,6 +7,7 @@ import { fetchLaboratories, updateLaboratory } from '@/api/laboratory';
 import { fetchOrgSettings, updateOrgSettings } from '@/api/settings';
 import type { OrgSettings } from '@/api/settings';
 import { loadPrefs, savePrefs } from '@/utils/prefs';
+import apiClient from '@/api/client';
 import PageHeader from '@/components/common/PageHeader';
 
 const TABS = [
@@ -282,6 +283,10 @@ function ReportSettingsTab() {
             <Input value={form.doc_rev_number ?? ''} disabled={!canEdit}
               onChange={(e) => setForm((f) => ({ ...f, doc_rev_number: e.target.value }))} />
           </FieldGroup>
+          <FieldGroup label="Document issue date">
+            <Input value={form.doc_issue_date ?? ''} disabled={!canEdit} placeholder="01.01.2026"
+              onChange={(e) => setForm((f) => ({ ...f, doc_issue_date: e.target.value }))} />
+          </FieldGroup>
         </div>
 
         <FieldGroup label="Laboratory logo (optional, shown top-left on certificates)">
@@ -331,6 +336,21 @@ function ReportSettingsTab() {
 function ConnectionsTab() {
   const serialSupported = typeof navigator !== 'undefined' && 'serial' in navigator;
   const [prefs, setPrefs] = useState(loadPrefs);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'unreachable'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .get('/health/')
+      .then(() => { if (!cancelled) setApiStatus('online'); })
+      .catch(() => { if (!cancelled) setApiStatus('unreachable'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const statusColor =
+    apiStatus === 'online' ? '#389e0d' : apiStatus === 'unreachable' ? '#cf1322' : '#d9d9d9';
+  const statusLabel =
+    apiStatus === 'online' ? 'Online' : apiStatus === 'unreachable' ? 'Unreachable' : 'Checking…';
 
   return (
     <div>
@@ -352,6 +372,20 @@ function ConnectionsTab() {
         </FieldGroup>
       </div>
       <div style={{ marginTop: 16, display: 'flex', gap: 24 }}>
+        <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ color: '#666666' }}>API server: </span>
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: statusColor,
+            }}
+          />
+          <span style={{ color: statusColor, fontWeight: 500 }}>{statusLabel}</span>
+        </div>
         <div style={{ fontSize: 13 }}>
           <span style={{ color: '#666666' }}>Web Serial: </span>
           <span style={{ color: serialSupported ? '#389e0d' : '#cf1322', fontWeight: 500 }}>
@@ -370,7 +404,7 @@ function AboutTab() {
       <div style={{ maxWidth: 400 }}>
         {[
           ['Application', 'NAWI Test Report Generator'],
-          ['Version', '0.3.0'],
+          ['Version', __APP_VERSION__],
           ['Standard', 'OIML R 76-1:2006'],
           ['Tech stack', 'Django + React + TypeScript'],
         ].map(([label, value]) => (
@@ -401,11 +435,20 @@ export default function Settings() {
     <div>
       <PageHeader title="Settings" />
       <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 32 }}>
-        <div style={{ borderRight: '1px solid #e8e8e8', paddingRight: 16 }}>
+        <div role="tablist" aria-label="Settings sections" style={{ borderRight: '1px solid #e8e8e8', paddingRight: 16 }}>
           {TABS.map((tab) => (
             <div
               key={tab.key}
+              role="tab"
+              tabIndex={0}
+              aria-selected={activeTab === tab.key}
               onClick={() => setActiveTab(tab.key)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveTab(tab.key);
+                }
+              }}
               style={{
                 padding: '8px 12px',
                 fontSize: 13,

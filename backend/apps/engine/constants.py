@@ -50,6 +50,7 @@ class SessionStatus(models.TextChoices):
 
 class ReportStatus(models.TextChoices):
     DRAFT = 'draft', 'Draft'
+    REVIEWED = 'reviewed', 'Reviewed'
     APPROVED = 'approved', 'Approved'
 
 

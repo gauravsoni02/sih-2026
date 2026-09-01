@@ -8,11 +8,11 @@ from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from apps.accounts.permissions import CanApprove, CanWrite
+from apps.accounts.permissions import CanApprove, CanWrite, IsLabManager
 from apps.engine.constants import ComplianceStatus, ReportStatus, SessionStatus
 from apps.testing.models import TestSession
 
@@ -20,6 +20,55 @@ from .models import Report
 from .serializers import ReportListSerializer, ReportSerializer
 
 logger = logging.getLogger(__name__)
+
+
+class ReportGenerateThrottle(UserRateThrottle):
+    """Per-user throttle for synchronous report generation (PDF + signing)."""
+    scope = 'report_generate'
+
+
+def _check_lab_access(request: Request, session) -> Response | None:
+    """Non-admin users may only touch reports of their own laboratory.
+
+    Returns a 403 Response when access is denied, else None.
+    """
+    user = request.user
+    if (
+        getattr(user, 'role', '') != 'admin'
+        and getattr(user, 'laboratory_id', None)
+        and session.laboratory_id != user.laboratory_id
+    ):
+        return Response(
+            {'detail': 'You do not have access to reports of another laboratory.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+def _regenerate_report_files(report) -> bool:
+    """Re-run PDF + signature + DOCX for *report*, updating file paths.
+
+    Returns True on success, False on failure (logged, never raised).
+    """
+    try:
+        from apps.reports.generators.docx import generate_docx
+        from apps.reports.generators.pdf import generate_pdf
+        from apps.reports.signing import sign_pdf
+
+        pdf_path = generate_pdf(report)
+        sign_pdf(pdf_path, reason=f'Certificate {report.report_number}')
+        report.pdf_path = pdf_path
+
+        docx_path = generate_docx(report)
+        report.docx_path = docx_path
+
+        report.save(update_fields=['pdf_path', 'docx_path', 'updated_at'])
+        return True
+    except Exception:
+        logger.exception(
+            "Report regeneration failed for report %s", report.report_number
+        )
+        return False
 
 
 class ReportViewSet(viewsets.ReadOnlyModelViewSet):
@@ -36,12 +85,41 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
             return ReportListSerializer
         return ReportSerializer
 
+    @action(detail=True, methods=['post'], permission_classes=[IsLabManager])
+    def review(self, request: Request, pk: str = None) -> Response:
+        """Mark a draft report as reviewed (checked) by a lab manager/admin."""
+        report = self.get_object()
+        denied = _check_lab_access(request, report.session)
+        if denied:
+            return denied
+        if report.status in (ReportStatus.REVIEWED, ReportStatus.APPROVED):
+            return Response(
+                {'detail': 'Report has already been reviewed or approved.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        report.status = ReportStatus.REVIEWED
+        report.checked_by = request.user
+        report.checked_at = timezone.now()
+        report.save(update_fields=[
+            'status', 'checked_by', 'checked_at', 'updated_at',
+        ])
+        serializer = ReportSerializer(report)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['post'], permission_classes=[CanApprove])
     def approve(self, request: Request, pk: str = None) -> Response:
         report = self.get_object()
+        denied = _check_lab_access(request, report.session)
+        if denied:
+            return denied
         if report.status == ReportStatus.APPROVED:
             return Response(
                 {'detail': 'Report already approved.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if report.status != ReportStatus.REVIEWED:
+            return Response(
+                {'detail': 'Report must be reviewed (checked) before approval.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         report.status = ReportStatus.APPROVED
@@ -50,15 +128,29 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
         report.save(update_fields=[
             'status', 'approved_by', 'approved_at', 'updated_at',
         ])
-        serializer = ReportSerializer(report)
-        return Response(serializer.data)
+
+        # Regenerate + re-sign so the issued files carry the approver,
+        # checked-by and the real certificate issue date.
+        regenerated = _regenerate_report_files(report)
+
+        data = ReportSerializer(report).data
+        if not regenerated:
+            data['regeneration_failed'] = True
+        return Response(data)
 
     @action(detail=True, methods=['get'])
     def preview(self, request: Request, pk: str = None) -> Response:
+        from apps.laboratory.models import OrgSettings
+        from apps.reports.generators import DEFAULT_REMARKS
+
         report = self.get_object()
         session = report.session
+        denied = _check_lab_access(request, session)
+        if denied:
+            return denied
         inst = session.instrument
         lab = session.laboratory
+        org = OrgSettings.load()
 
         results = session.results.order_by('test_type', 'trial_number', 'test_point_load')
         results_data = []
@@ -84,6 +176,9 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
                 'created_at': report.created_at.isoformat(),
                 'generated_by': report.generated_by.get_full_name() or report.generated_by.username,
                 'approved_by': (report.approved_by.get_full_name() or report.approved_by.username) if report.approved_by else None,
+                'approved_at': report.approved_at.isoformat() if report.approved_at else None,
+                'checked_by': (report.checked_by.get_full_name() or report.checked_by.username) if report.checked_by else None,
+                'checked_at': report.checked_at.isoformat() if report.checked_at else None,
             },
             'session': {
                 'id': session.id,
@@ -115,11 +210,23 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
                 'lab_code': lab.lab_code,
             },
             'results': results_data,
+            'org_settings': {
+                'jurisdiction': org.jurisdiction,
+                'doc_control_number': org.doc_control_number,
+                'doc_issue_number': org.doc_issue_number,
+                'doc_rev_number': org.doc_rev_number,
+                'doc_issue_date': org.doc_issue_date,
+                'default_remarks': org.default_remarks or DEFAULT_REMARKS,
+                'logo_data_uri': org.logo_data_uri,
+            },
         })
 
     @action(detail=True, methods=['get'], url_path='download/(?P<fmt>pdf|docx)')
-    def download(self, request: Request, pk: str = None, fmt: str = 'pdf') -> FileResponse:
+    def download(self, request: Request, pk: str = None, fmt: str = 'pdf'):
         report = self.get_object()
+        denied = _check_lab_access(request, report.session)
+        if denied:
+            return denied
         file_path = report.pdf_path if fmt == 'pdf' else report.docx_path
         if not file_path:
             raise Http404(f"No {fmt.upper()} file available for this report.")
@@ -265,6 +372,7 @@ def verify_report(request: Request, code: str) -> Response:
 
 @api_view(['POST'])
 @permission_classes([CanWrite])
+@throttle_classes([ReportGenerateThrottle])
 def generate_report_view(request: Request, session_id: int) -> Response:
     try:
         session = TestSession.objects.select_related(
@@ -275,6 +383,10 @@ def generate_report_view(request: Request, session_id: int) -> Response:
             {'detail': 'Test session not found.'},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    denied = _check_lab_access(request, session)
+    if denied:
+        return denied
 
     if session.status != SessionStatus.COMPLETED:
         return Response(
@@ -314,21 +426,7 @@ def generate_report_view(request: Request, session_id: int) -> Response:
         status=ReportStatus.DRAFT,
     )
 
-    try:
-        from apps.reports.generators.pdf import generate_pdf
-        from apps.reports.generators.docx import generate_docx
-        from apps.reports.signing import sign_pdf
-
-        pdf_path = generate_pdf(report)
-        sign_pdf(pdf_path, reason=f'Certificate {report.report_number}')
-        report.pdf_path = pdf_path
-
-        docx_path = generate_docx(report)
-        report.docx_path = docx_path
-
-        report.save(update_fields=['pdf_path', 'docx_path', 'updated_at'])
-    except Exception:
-        logger.exception("Report generation failed for report %s", report.report_number)
+    _regenerate_report_files(report)
 
     serializer = ReportSerializer(report)
     return Response(serializer.data, status=status.HTTP_201_CREATED)

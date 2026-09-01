@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { Form, Input, Button } from 'antd';
 import { login } from '@/api/auth';
 import { useAuthStore } from '@/store/authStore';
@@ -27,8 +28,12 @@ export default function Login() {
       queryClient.setQueryData(['me'], user);
       setUser(user);
       navigate('/');
-    } catch {
-      setError('Invalid username or password');
+    } catch (err: unknown) {
+      if (isAxiosError(err) && err.response?.status === 401) {
+        setError('Invalid username or password');
+      } else {
+        setError('Cannot reach the server — it may be waking up (can take ~60s on free hosting). Please try again.');
+      }
     } finally {
       setLoading(false);
     }

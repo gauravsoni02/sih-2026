@@ -42,38 +42,6 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
-  celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: celery -A config worker -l info --concurrency=2
-    volumes:
-      - report_storage:/var/nawi/reports
-    env_file:
-      - .env
-    environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
-
-  celery_beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: celery -A config beat -l info
-    env_file:
-      - .env
-    environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
-    depends_on:
-      redis:
-        condition: service_started
-    restart: unless-stopped
-
   nginx:
     image: nginx:1.27-alpine
     ports:

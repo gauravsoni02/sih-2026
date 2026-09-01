@@ -138,7 +138,9 @@ export default function SessionDetail() {
         (r) =>
           r.test_type === 'weighing_performance' &&
           r.computed_error &&
-          r.mpe_applicable,
+          r.mpe_applicable &&
+          // Hysteresis comparison rows are not error-vs-load points
+          !(r.remarks || '').startsWith('Hysteresis'),
       )
       .map((r) => ({
         nominalLoad: parseFloat(r.test_point_load ?? '0'),

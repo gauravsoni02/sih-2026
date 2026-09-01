@@ -29,12 +29,22 @@ def get_config(path: str | None = None) -> dict[str, Any]:
     return _load_raw(config_path)
 
 
-def get_mpe_table(config: dict[str, Any] | None = None) -> dict[str, list[tuple[int, int, Decimal]]]:
+def get_mpe_table(config: dict[str, Any] | None = None) -> dict[str, list[tuple[int, Decimal, Decimal]]]:
+    """Parsed MPE table: {class: [(lower, upper, factor), ...]} in numbers
+    of verification scale intervals.
+
+    A band with ``"upper": null`` is unbounded (e.g. Class I, whose n_max
+    is unlimited per R 76-1 Table 3) and is parsed as Decimal('Infinity').
+    """
     cfg = config or get_config()
-    table: dict[str, list[tuple[int, int, Decimal]]] = {}
+    table: dict[str, list[tuple[int, Decimal, Decimal]]] = {}
     for cls, ranges in cfg['mpe_table'].items():
         table[cls] = [
-            (r['lower'], r['upper'], Decimal(r['factor']))
+            (
+                r['lower'],
+                Decimal('Infinity') if r['upper'] is None else Decimal(r['upper']),
+                Decimal(r['factor']),
+            )
             for r in ranges
         ]
     return table

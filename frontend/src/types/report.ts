@@ -1,4 +1,4 @@
-export type ReportStatus = 'draft' | 'approved';
+export type ReportStatus = 'draft' | 'reviewed' | 'approved';
 
 export interface Report {
   id: number;
@@ -8,6 +8,9 @@ export interface Report {
   generated_by_name?: string;
   approved_by: number | null;
   approved_by_name?: string;
+  approved_at?: string | null;
+  checked_by?: number | null;
+  checked_at?: string | null;
   overall_verdict: string;
   pdf_path: string;
   docx_path: string;

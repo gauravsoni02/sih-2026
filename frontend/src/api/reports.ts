@@ -28,6 +28,11 @@ export async function approveReport(id: number): Promise<Report> {
   return res.data;
 }
 
+export async function reviewReport(id: number): Promise<Report> {
+  const res = await apiClient.post<Report>(`/reports/${id}/review/`);
+  return res.data;
+}
+
 export async function downloadReport(id: number, format: 'pdf' | 'docx'): Promise<void> {
   const res = await apiClient.get(`/reports/${id}/download/${format}/`, {
     responseType: 'blob',
@@ -62,6 +67,9 @@ export interface ReportPreviewData {
     created_at: string;
     generated_by: string;
     approved_by: string | null;
+    approved_at: string | null;
+    checked_by: string | null;
+    checked_at: string | null;
   };
   session: {
     id: number;
@@ -103,6 +111,15 @@ export interface ReportPreviewData {
     trial_number: number;
     remarks: string;
   }>;
+  org_settings: {
+    jurisdiction: string;
+    doc_control_number: string;
+    doc_issue_number: string;
+    doc_rev_number: string;
+    doc_issue_date: string;
+    default_remarks: string[];
+    logo_data_uri: string;
+  };
 }
 
 export async function fetchReportPreview(id: number): Promise<ReportPreviewData> {

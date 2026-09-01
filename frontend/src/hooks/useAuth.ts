@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { useAuthStore } from '@/store/authStore';
 import { getMe } from '@/api/auth';
 
@@ -10,7 +11,7 @@ export function useAuth() {
     queryKey: ['me'],
     queryFn: getMe,
     enabled: isAuthenticated && !user,
-    retry: false,
+    retry: 2,
   });
 
   useEffect(() => {
@@ -18,7 +19,14 @@ export function useAuth() {
   }, [data, setUser]);
 
   useEffect(() => {
-    if (error) logout();
+    // Only log out on a definitive auth rejection. A network error (server
+    // cold-starting, connection dropped) must never wipe the session.
+    if (
+      isAxiosError(error) &&
+      (error.response?.status === 401 || error.response?.status === 403)
+    ) {
+      logout();
+    }
   }, [error, logout]);
 
   return { user, isAuthenticated, isLoading, logout };

@@ -13,6 +13,10 @@ def standard_config_view(request):
     })
 
 
+def health_view(request):
+    return JsonResponse({'status': 'ok'})
+
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('apps.accounts.urls')),
@@ -22,5 +26,6 @@ urlpatterns = [
     path('api/reports/', include('apps.reports.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
     path('api/standard-config/', standard_config_view),
+    path('api/health/', health_view),
     path('api/settings/org/', org_settings_view),
 ]

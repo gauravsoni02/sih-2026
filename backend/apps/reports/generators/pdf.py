@@ -341,20 +341,30 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     doc_control_number = context.get('doc_control_number', 'LM-FMT-NAWI-01')
     doc_issue_number = context.get('doc_issue_number', '01')
     doc_rev_number = context.get('doc_rev_number', '00')
+    doc_issue_date = context.get('doc_issue_date', '01.01.2026')
     logo_data_uri = context.get('logo_data_uri', '')
+    report_version = context.get('version', 1)
+    customer_name = context.get('customer_name', '')
+    customer_address = context.get('customer_address', '')
+    customer_contact = context.get('customer_contact', '')
+    request_date = context.get('request_date', '')
 
-    # Format session date nicely
-    try:
-        from datetime import date as _date, datetime as _dt
-        if isinstance(session_date, str) and session_date:
-            _d = _dt.strptime(session_date, '%Y-%m-%d').date()
-            session_date_fmt = _d.strftime('%d %b %Y')
-        elif isinstance(session_date, _date):
-            session_date_fmt = session_date.strftime('%d %b %Y')
-        else:
-            session_date_fmt = str(session_date)
-    except Exception:
-        session_date_fmt = str(session_date)
+    def _fmt_date(raw) -> str:
+        """Render an ISO date (str or date) as '01 Jan 2026'."""
+        try:
+            from datetime import date as _date, datetime as _dt
+            if isinstance(raw, str) and raw:
+                return _dt.strptime(raw, '%Y-%m-%d').date().strftime('%d %b %Y')
+            if isinstance(raw, _date):
+                return raw.strftime('%d %b %Y')
+        except Exception:
+            pass
+        return str(raw)
+
+    session_date_fmt = _fmt_date(session_date)
+    issue_date_fmt = _fmt_date(
+        context.get('certificate_issue_date') or session_date)
+    request_date_fmt = _fmt_date(request_date) if request_date else '—'
 
     # -------------------------------------------------------------------
     # Instrument details helper
@@ -395,25 +405,22 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     # -------------------------------------------------------------------
     # Page-level callbacks (header / footer)
     # -------------------------------------------------------------------
-    _page_count_holder: dict[str, int] = {'total': 0}
-
     DOC_CONTROL = (
         f'Doc No: {doc_control_number}  |  Issue No: {doc_issue_number}  |  '
-        f'Rev No: {doc_rev_number}  |  Software v{software_version}'
+        f'Issue Date: {doc_issue_date}  |  Rev No: {doc_rev_number}  |  '
+        f'Software v{software_version}'
     )
 
     def _draw_header_footer(canvas, doc):
         canvas.saveState()
-        page_num = doc.page
-        # -- repeating header --
+        # -- repeating header (the centred 'Page X of Y' is drawn by
+        #    _NumberedCanvas once the total page count is known) --
         y_top = PAGE_H - 12 * mm
         canvas.setFont('Helvetica', 8)
         canvas.drawString(MARGIN_LEFT, y_top,
                           f'Certificate No: {report_number}')
         canvas.drawRightString(PAGE_W - MARGIN_RIGHT, y_top,
                                f'ULR No: {accreditation_number}')
-        canvas.drawCentredString(PAGE_W / 2, y_top,
-                                 f'Page {page_num}')
         canvas.setStrokeColor(CLR_RULE)
         canvas.setLineWidth(0.4)
         canvas.line(MARGIN_LEFT, y_top - 3, PAGE_W - MARGIN_RIGHT, y_top - 3)
@@ -430,6 +437,36 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
 
     def _draw_later_page(canvas, doc):
         _draw_header_footer(canvas, doc)
+
+    # -------------------------------------------------------------------
+    # Canvas with deferred page numbering: pages are buffered in showPage
+    # and stamped 'Page i of N' once the total is known at save time.
+    # -------------------------------------------------------------------
+    from reportlab.pdfgen.canvas import Canvas as _RLCanvas
+
+    class _NumberedCanvas(_RLCanvas):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states: list[dict] = []
+
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.saveState()
+                self.setFont('Helvetica', 8)
+                self.setFillColor(CLR_BLACK)
+                self.drawCentredString(
+                    PAGE_W / 2, PAGE_H - 12 * mm,
+                    f'Page {self._pageNumber} of {total}',
+                )
+                self.restoreState()
+                super().showPage()
+            super().save()
 
     # -------------------------------------------------------------------
     # Build the document
@@ -506,12 +543,14 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
     # Certificate / ULR / Date line
     cert_data = [
         [
-            Paragraph(f'<b>Certificate No:</b> {report_number}', sty_cell),
+            Paragraph(
+                f'<b>Certificate No:</b> {report_number} &nbsp;&nbsp; '
+                f'<b>Version:</b> {report_version}', sty_cell),
             Paragraph(f'<b>ULR No:</b> {accreditation_number}', sty_cell_right),
         ],
         [
             Paragraph(
-                f'<b>Certificate Issue Date:</b> {session_date_fmt}', sty_cell),
+                f'<b>Certificate Issue Date:</b> {issue_date_fmt}', sty_cell),
             Paragraph('', sty_cell_right),
         ],
     ]
@@ -534,30 +573,19 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         spaceAfter=4, spaceBefore=0,
     ))
 
-    contact = ''
-    if instrument:
-        try:
-            lab_obj = context.get('_laboratory')
-        except Exception:
-            lab_obj = None
-    # Use lab contact_person if available from the original session
-    contact_person = ''
-    try:
-        session_obj = context.get('_session')
-        if session_obj and hasattr(session_obj, 'laboratory'):
-            contact_person = session_obj.laboratory.contact_person or ''
-    except Exception:
-        pass
-    if not contact_person:
-        contact_person = 'As submitted'
-
+    # Customer details come from the test session; when absent an em dash
+    # is rendered — never the lab's own name or the test engineer.
     cust_rows = [
         [Paragraph('<b>Parameter</b>', sty_cell_bold),
          Paragraph('<b>Details</b>', sty_cell_bold)],
         [Paragraph('Customer / Applicant Name', sty_cell),
-         Paragraph(contact_person, sty_cell)],
+         Paragraph(customer_name or '—', sty_cell)],
         [Paragraph('Address', sty_cell),
-         Paragraph(lab_address, sty_cell)],
+         Paragraph(customer_address or '—', sty_cell)],
+        [Paragraph('Contact', sty_cell),
+         Paragraph(customer_contact or '—', sty_cell)],
+        [Paragraph('Test Request Date', sty_cell),
+         Paragraph(request_date_fmt, sty_cell)],
         [Paragraph('Date of Testing', sty_cell),
          Paragraph(session_date_fmt, sty_cell)],
     ]
@@ -733,31 +761,31 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         # Build table based on test type
         if test_type == TestType.WEIGHING_PERFORMANCE:
             _add_weighing_table(
-                section_flowables, results, FRAME_W,
+                section_flowables, results, FRAME_W, unit_str,
                 sty_cell_center_bold, sty_cell_center, sty_cell,
                 _base_table_style, _status_para, CLR_PASS, CLR_FAIL,
             )
         elif test_type == TestType.ECCENTRICITY:
             _add_eccentricity_table(
-                section_flowables, results, FRAME_W,
+                section_flowables, results, FRAME_W, unit_str,
                 sty_cell_center_bold, sty_cell_center, sty_cell,
                 _base_table_style, _status_para,
             )
         elif test_type == TestType.REPEATABILITY:
             _add_repeatability_table(
-                section_flowables, results, FRAME_W,
+                section_flowables, results, FRAME_W, unit_str,
                 sty_cell_center_bold, sty_cell_center, sty_cell,
                 _base_table_style, _status_para,
             )
         elif test_type == TestType.DISCRIMINATION:
             _add_discrimination_table(
-                section_flowables, results, FRAME_W,
+                section_flowables, results, FRAME_W, unit_str,
                 sty_cell_center_bold, sty_cell_center, sty_cell,
                 _base_table_style, _status_para,
             )
         else:
             _add_generic_table(
-                section_flowables, results, FRAME_W,
+                section_flowables, results, FRAME_W, unit_str,
                 sty_cell_center_bold, sty_cell_center, sty_cell,
                 _base_table_style, _status_para,
             )
@@ -792,6 +820,19 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         ))
         budget_flowables.append(Spacer(1, 4))
 
+        # Round budget figures to the instrument resolution d, matching the
+        # rounding used in the result tables (never rounded down).
+        from apps.engine.uncertainty import round_uncertainty
+
+        def _fmt_u(value) -> str:
+            d_val = getattr(instrument, 'actual_scale_interval_d', None)
+            if d_val:
+                try:
+                    return str(round_uncertainty(Decimal(str(value)), d_val))
+                except Exception:
+                    pass
+            return f'{value:.6f}'
+
         budget_rows = [[
             Paragraph('<b>Uncertainty Component</b>', sty_cell_center_bold),
             Paragraph(f'<b>Standard Uncertainty ({budget["unit"]})</b>',
@@ -800,16 +841,17 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
         for name, value in budget['components']:
             budget_rows.append([
                 Paragraph(name, sty_cell),
-                Paragraph(f'{value:.6f}', sty_cell_center),
+                Paragraph(_fmt_u(value), sty_cell_center),
             ])
         budget_rows.append([
             Paragraph('<b>Combined standard uncertainty u<sub>c</sub></b>', sty_cell),
-            Paragraph(f'<b>{budget["u_combined"]:.6f}</b>', sty_cell_center),
+            Paragraph(f'<b>{_fmt_u(budget["u_combined"])}</b>', sty_cell_center),
         ])
         budget_rows.append([
             Paragraph(f'<b>Expanded uncertainty U (k={budget["k"]}, ~95%)</b>',
                       sty_cell),
-            Paragraph(f'<b>&plusmn;{budget["expanded"]:.6f}</b>', sty_cell_center),
+            Paragraph(f'<b>&plusmn;{_fmt_u(budget["expanded"])}</b>',
+                      sty_cell_center),
         ])
         budget_tbl = Table(
             budget_rows, colWidths=[FRAME_W * 0.62, FRAME_W * 0.38])
@@ -923,10 +965,14 @@ def _generate_pdf_reportlab(*, context: dict[str, Any], filepath: str) -> None:
             story.append(Spacer(1, 18))
             story.append(qr_flowable)
 
+    # End-of-report marker (before the repeating document-control footer)
+    story.append(Spacer(1, 14))
+    story.append(Paragraph('--- End of Test Report ---', sty_normal_center))
+
     # -------------------------------------------------------------------
-    # Build
+    # Build (with deferred 'Page X of Y' numbering)
     # -------------------------------------------------------------------
-    doc.build(story)
+    doc.build(story, canvasmaker=_NumberedCanvas)
 
 
 def _load_logo_image(logo_data_uri: str):
@@ -1002,6 +1048,7 @@ def _add_weighing_table(
     flowables: list,
     results: list,
     frame_w: float,
+    unit: str,
     sty_hdr,
     sty_center,
     sty_cell,
@@ -1016,12 +1063,12 @@ def _add_weighing_table(
 
     header = [
         Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph('<b>Test Point</b>', sty_hdr),
-        Paragraph('<b>Ref. Mass Value</b>', sty_hdr),
-        Paragraph('<b>Indicated Value</b>', sty_hdr),
-        Paragraph('<b>Error</b>', sty_hdr),
-        Paragraph(u'<b>MPE (±)</b>', sty_hdr),
-        Paragraph(u'<b>U (±) k=2</b>', sty_hdr),
+        Paragraph(f'<b>Test Point ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Ref. Mass ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
+        Paragraph(f'<b>U (±{unit}) k=2</b>', sty_hdr),
         Paragraph('<b>Result</b>', sty_hdr),
     ]
     rows = [header]
@@ -1066,6 +1113,7 @@ def _add_eccentricity_table(
     flowables: list,
     results: list,
     frame_w: float,
+    unit: str,
     sty_hdr,
     sty_center,
     sty_cell,
@@ -1078,10 +1126,10 @@ def _add_eccentricity_table(
     header = [
         Paragraph('<b>Sr No</b>', sty_hdr),
         Paragraph('<b>Position</b>', sty_hdr),
-        Paragraph('<b>Test Load</b>', sty_hdr),
-        Paragraph('<b>Indicated Value</b>', sty_hdr),
-        Paragraph('<b>Error</b>', sty_hdr),
-        Paragraph(u'<b>MPE (±)</b>', sty_hdr),
+        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
         Paragraph('<b>Result</b>', sty_hdr),
     ]
 
@@ -1148,6 +1196,7 @@ def _add_repeatability_table(
     flowables: list,
     results: list,
     frame_w: float,
+    unit: str,
     sty_hdr,
     sty_center,
     sty_cell,
@@ -1166,13 +1215,13 @@ def _add_repeatability_table(
 
     for load_str, load_results in by_load.items():
         flowables.append(Paragraph(
-            f'Test Load: {load_str}', sty_cell))
+            f'Test Load: {load_str} {unit}', sty_cell))
 
         header = [
             Paragraph('<b>Trial</b>', sty_hdr),
-            Paragraph('<b>Indicated Value</b>', sty_hdr),
-            Paragraph('<b>Error</b>', sty_hdr),
-            Paragraph(u'<b>MPE (±)</b>', sty_hdr),
+            Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
+            Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
+            Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
             Paragraph('<b>Result</b>', sty_hdr),
         ]
 
@@ -1225,6 +1274,7 @@ def _add_discrimination_table(
     flowables: list,
     results: list,
     frame_w: float,
+    unit: str,
     sty_hdr,
     sty_center,
     sty_cell,
@@ -1237,10 +1287,10 @@ def _add_discrimination_table(
 
     header = [
         Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph('<b>Test Load</b>', sty_hdr),
-        Paragraph('<b>Indication Before</b>', sty_hdr),
-        Paragraph('<b>Indication After (+1.4d)</b>', sty_hdr),
-        Paragraph('<b>Change</b>', sty_hdr),
+        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Indication Before ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Indication After +1.4d ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Change ({unit})</b>', sty_hdr),
         Paragraph('<b>Result</b>', sty_hdr),
     ]
 
@@ -1284,6 +1334,7 @@ def _add_generic_table(
     flowables: list,
     results: list,
     frame_w: float,
+    unit: str,
     sty_hdr,
     sty_center,
     sty_cell,
@@ -1295,10 +1346,10 @@ def _add_generic_table(
 
     header = [
         Paragraph('<b>Sr No</b>', sty_hdr),
-        Paragraph('<b>Test Load</b>', sty_hdr),
-        Paragraph('<b>Indicated Value</b>', sty_hdr),
-        Paragraph('<b>Error</b>', sty_hdr),
-        Paragraph(u'<b>MPE (±)</b>', sty_hdr),
+        Paragraph(f'<b>Test Load ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Indicated ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>Error ({unit})</b>', sty_hdr),
+        Paragraph(f'<b>MPE (±{unit})</b>', sty_hdr),
         Paragraph('<b>Result</b>', sty_hdr),
     ]
 

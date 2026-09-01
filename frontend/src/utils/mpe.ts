@@ -63,8 +63,14 @@ const FALLBACK_MPE_TABLE: Record<AccuracyClass, [number, number, number][]> = {
 
 export async function loadStandardConfig(): Promise<void> {
   try {
-    const res = await fetch('/api/standard-config/');
-    if (res.ok) cachedConfig = await res.json();
+    const base = import.meta.env.VITE_API_URL || '/api';
+    const res = await fetch(`${base}/standard-config/`);
+    // Guard against SPA rewrites serving index.html for unknown paths:
+    // only accept an OK response that is actually JSON.
+    const contentType = res.headers.get('content-type') ?? '';
+    if (res.ok && contentType.includes('json')) {
+      cachedConfig = await res.json();
+    }
   } catch {
     // fallback to hardcoded table
   }

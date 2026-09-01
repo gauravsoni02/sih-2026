@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Spin, Button, message } from 'antd';
 import { PrinterOutlined } from '@ant-design/icons';
-import { fetchReport, approveReport, downloadReport, fetchReportPreview } from '@/api/reports';
+import { fetchReport, approveReport, reviewReport, downloadReport, fetchReportPreview } from '@/api/reports';
 import type { ReportPreviewData } from '@/api/reports';
 import { useAuthStore } from '@/store/authStore';
 import PageHeader from '@/components/common/PageHeader';
@@ -27,8 +27,25 @@ const TEST_TYPE_LABELS: Record<string, string> = {
 
 /* ---------- NABL-style certificate preview ---------- */
 
+const FALLBACK_REMARKS = [
+  'This test report is issued based on the test results obtained during the evaluation of the instrument described above.',
+  'The results reported herein relate only to the instrument tested under the conditions specified.',
+  'This test report shall not be reproduced except in full, without the written approval of the issuing laboratory.',
+  'The expanded measurement uncertainty is estimated at a confidence level of approximately 95% with a coverage factor k=2.',
+  'All tests have been performed in accordance with OIML R 76-1:2006 and the applicable Indian Legal Metrology standards.',
+  'The instrument was tested in its normal operating position on a stable, level surface.',
+  'Reference standards used are traceable to National / International Standards.',
+  'Conformity is assessed by simple acceptance as per ILAC-G8: the indication error is compared directly with the MPE; measurement uncertainty is not deducted from the tolerance limit.',
+];
+
 function ReportPreview({ data }: { data: ReportPreviewData }) {
   const { report, session, instrument, laboratory, results } = data;
+  const orgSettings = data.org_settings;
+
+  const remarks =
+    orgSettings?.default_remarks?.length ? orgSettings.default_remarks : FALLBACK_REMARKS;
+  // Legally the certificate is issued on approval; drafts show the generation date.
+  const issueDate = (report.approved_at || report.created_at).slice(0, 10);
 
   const testTypes = [...new Set(results.map((r) => r.test_type))];
 
@@ -111,7 +128,14 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
       }}
     >
       {/* ========== PAGE 1: GOVERNMENT HEADER ========== */}
-      <div style={{ textAlign: 'center', marginBottom: 8 }}>
+      <div style={{ textAlign: 'center', marginBottom: 8, position: 'relative' }}>
+        {orgSettings?.logo_data_uri && (
+          <img
+            src={orgSettings.logo_data_uri}
+            alt="Laboratory logo"
+            style={{ position: 'absolute', top: 0, left: 0, maxHeight: 40, maxWidth: 80 }}
+          />
+        )}
         <div
           style={{
             fontSize: 14,
@@ -130,7 +154,7 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
             marginTop: 2,
           }}
         >
-          Ministry of Consumer Affairs, Food &amp; Public Distribution
+          {orgSettings?.jurisdiction || 'Ministry of Consumer Affairs, Food & Public Distribution'}
         </div>
         <div
           style={{
@@ -217,7 +241,7 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
             <td style={{ padding: '2px 4px', fontWeight: 600, color: '#333', whiteSpace: 'nowrap' }}>
               Certificate Issue Date:
             </td>
-            <td style={{ padding: '2px 4px', fontWeight: 700 }}>{session.session_date}</td>
+            <td style={{ padding: '2px 4px', fontWeight: 700 }}>{issueDate}</td>
             <td
               style={{
                 padding: '2px 4px',
@@ -378,36 +402,11 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
         }}
       >
         <ol style={{ margin: 0, paddingLeft: 18 }}>
-          <li style={{ marginBottom: 3 }}>
-            This certificate is issued on the basis of test results obtained during examination and
-            testing of the instrument described above, as per the procedures laid down in OIML R
-            76-1:2006.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            The test results reported herein relate only to the specific instrument tested under the
-            stated environmental conditions and the test loads used during the examination.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            The standard weights/masses used for testing are traceable to the National Standards
-            maintained at the National Physical Laboratory (NPL), New Delhi, India.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            The reported measurement uncertainty, where applicable, has been estimated in accordance
-            with the guidelines given in the document EA-4/02 &ldquo;Expression of the Uncertainty
-            of Measurement in Calibration&rdquo;.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            This certificate shall not be reproduced, except in full, without the prior written
-            approval of the issuing laboratory.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            The calibration/test results are valid at the time of testing. The issuing laboratory is
-            not responsible for any subsequent changes in the performance of the instrument.
-          </li>
-          <li style={{ marginBottom: 3 }}>
-            This test report is generated electronically by the NAWI Test Report Generator and is
-            valid without signature if issued through the approved digital workflow.
-          </li>
+          {remarks.map((remark, i) => (
+            <li key={i} style={{ marginBottom: 3 }}>
+              {remark}
+            </li>
+          ))}
         </ol>
       </div>
 
@@ -671,9 +670,11 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
         <div style={{ flex: 1, textAlign: 'center' }}>
           <div style={{ borderTop: '1px solid #1a1a1a', marginTop: 48, paddingTop: 6 }}>
             <div style={{ fontWeight: 700, fontSize: 10 }}>Checked By</div>
-            <div style={{ fontSize: 9, marginTop: 2 }}>________________</div>
+            <div style={{ fontSize: 9, marginTop: 2 }}>{report.checked_by || '________________'}</div>
             <div style={{ fontSize: 8, color: '#666', marginTop: 1 }}>Senior Technical Officer</div>
-            <div style={{ fontSize: 8, color: '#666', marginTop: 2 }}>Date: ________________</div>
+            <div style={{ fontSize: 8, color: '#666', marginTop: 2 }}>
+              Date: {report.checked_at ? report.checked_at.slice(0, 10) : '________________'}
+            </div>
           </div>
         </div>
         <div style={{ flex: 1, textAlign: 'center' }}>
@@ -684,8 +685,7 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
             </div>
             <div style={{ fontSize: 8, color: '#666', marginTop: 1 }}>Laboratory In-Charge</div>
             <div style={{ fontSize: 8, color: '#666', marginTop: 2 }}>
-              Date:{' '}
-              {report.status === 'approved' ? report.created_at.slice(0, 10) : '________________'}
+              Date: {report.approved_at ? report.approved_at.slice(0, 10) : '________________'}
             </div>
           </div>
         </div>
@@ -703,10 +703,10 @@ function ReportPreview({ data }: { data: ReportPreviewData }) {
           color: '#666',
         }}
       >
-        <span>Doc No: LM-FMT-NAWI-01</span>
-        <span>Issue No: 01</span>
-        <span>Issue Date: 01-01-2024</span>
-        <span>Amendment No: 00</span>
+        <span>Doc No: {orgSettings?.doc_control_number || 'LM-FMT-NAWI-01'}</span>
+        <span>Issue No: {orgSettings?.doc_issue_number || '01'}</span>
+        <span>Issue Date: {orgSettings?.doc_issue_date || '01.01.2026'}</span>
+        <span>Rev No: {orgSettings?.doc_rev_number || '00'}</span>
         <span>NAWI Test Report Generator</span>
       </div>
     </div>
@@ -731,12 +731,22 @@ export default function ReportDetail() {
     enabled: !!id,
   });
 
+  const reviewMutation = useMutation({
+    mutationFn: () => reviewReport(Number(id)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['report', id] });
+      queryClient.invalidateQueries({ queryKey: ['report-preview', id] });
+      messageApi.success('Report marked as reviewed');
+    },
+    onError: () => messageApi.error('Review failed'),
+  });
+
   const approveMutation = useMutation({
     mutationFn: () => approveReport(Number(id)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['report', id] });
       queryClient.invalidateQueries({ queryKey: ['report-preview', id] });
-      messageApi.success('Report approved');
+      messageApi.success('Report approved — certificate re-signed');
     },
     onError: () => messageApi.error('Approval failed'),
   });
@@ -759,7 +769,16 @@ export default function ReportDetail() {
   if (isLoading) return <div style={{ textAlign: 'center', padding: 64 }}><Spin size="large" /></div>;
   if (!report) return null;
 
-  const canApprove = (user?.role === 'admin' || user?.role === 'lab_manager') && report.status === 'draft';
+  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'lab_manager';
+  const canReview = isManagerOrAdmin && report.status === 'draft';
+  const canApprove = isManagerOrAdmin && report.status === 'reviewed';
+
+  const statusSteps: Array<{ key: string; label: string }> = [
+    { key: 'draft', label: 'Draft' },
+    { key: 'reviewed', label: 'Reviewed' },
+    { key: 'approved', label: 'Approved' },
+  ];
+  const currentStepIdx = statusSteps.findIndex((s) => s.key === report.status);
 
   return (
     <div>
@@ -810,6 +829,11 @@ export default function ReportDetail() {
                 Download DOCX
               </Button>
             )}
+            {canReview && (
+              <Button type="primary" onClick={() => reviewMutation.mutate()} loading={reviewMutation.isPending}>
+                Mark as reviewed
+              </Button>
+            )}
             {canApprove && (
               <Button type="primary" onClick={() => approveMutation.mutate()} loading={approveMutation.isPending}>
                 Approve
@@ -818,6 +842,32 @@ export default function ReportDetail() {
           </div>
         }
       />
+
+      {/* Status flow indicator: Draft -> Reviewed -> Approved */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px' }}>
+        {statusSteps.map((step, idx) => {
+          const reached = idx <= currentStepIdx;
+          const isCurrent = idx === currentStepIdx;
+          return (
+            <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {idx > 0 && <span style={{ color: '#bbb' }}>→</span>}
+              <span
+                style={{
+                  padding: '2px 12px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: isCurrent ? 700 : 400,
+                  background: reached ? (isCurrent ? '#1677ff' : '#e6f4ff') : '#f5f5f5',
+                  color: reached ? (isCurrent ? '#fff' : '#1677ff') : '#999',
+                  border: reached ? '1px solid #91caff' : '1px solid #e8e8e8',
+                }}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {preview && <ReportPreview data={preview} />}
       {previewLoading && (

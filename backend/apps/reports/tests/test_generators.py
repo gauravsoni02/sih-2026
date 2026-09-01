@@ -337,12 +337,33 @@ class TestReportGeneration(TestCase):
         self.assertEqual(len(parts[3]), 4)
 
     def test_approved_report_immutable(self) -> None:
+        from django.core.exceptions import ValidationError
+
         self.report.status = 'approved'
         self.report.save(update_fields=['status', 'updated_at'])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValidationError):
             self.report.overall_verdict = 'fail'
             self.report.save()
+
+    def test_approved_report_rejects_non_whitelisted_update_fields(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        self.report.status = 'approved'
+        self.report.save(update_fields=['status', 'updated_at'])
+
+        with self.assertRaises(ValidationError):
+            self.report.overall_verdict = 'fail'
+            self.report.save(update_fields=['overall_verdict', 'updated_at'])
+
+    def test_approved_report_allows_whitelisted_update_fields(self) -> None:
+        self.report.status = 'approved'
+        self.report.save(update_fields=['status', 'updated_at'])
+
+        self.report.pdf_path = '/tmp/regenerated.pdf'
+        self.report.save(update_fields=['pdf_path', 'updated_at'])
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.pdf_path, '/tmp/regenerated.pdf')
 
     def test_report_versioning(self) -> None:
         self.assertEqual(self.report.version, 1)
@@ -359,7 +380,9 @@ class TestReportGeneration(TestCase):
 
 class TestReportGenerateAPI(TestCase):
     def setUp(self) -> None:
+        from django.core.cache import cache
         from rest_framework.test import APIClient
+        cache.clear()  # reset throttle history between tests
         self.api_client = APIClient()
         self.lab, self.engineer, self.instrument, self.session, _ = _create_test_fixtures()
         Report.objects.filter(session=self.session).delete()
@@ -444,3 +467,102 @@ class TestReportGenerateAPI(TestCase):
         self.api_client.force_authenticate(user=self.engineer)
         resp = self.api_client.get(f'/api/reports/{report.pk}/download/pdf/')
         self.assertEqual(resp.status_code, 404)
+
+    def test_other_lab_engineer_cannot_generate(self) -> None:
+        other_lab = Laboratory.objects.create(
+            name='Other Lab', address='Elsewhere',
+            accreditation_number='NABL-TC-99999', lab_code='OTH',
+        )
+        outsider = User.objects.create_user(
+            username='eng_other', password='testpass123',
+            role='engineer', laboratory=other_lab,
+        )
+        self.api_client.force_authenticate(user=outsider)
+        resp = self.api_client.post(f'/api/reports/generate/{self.session.pk}/')
+        self.assertEqual(resp.status_code, 403)
+
+
+class TestReviewApprovalWorkflow(TestCase):
+    def setUp(self) -> None:
+        from django.core.cache import cache
+        from rest_framework.test import APIClient
+        cache.clear()
+        self.api_client = APIClient()
+        self.lab, self.engineer, self.instrument, self.session, self.report = _create_test_fixtures()
+        self.manager = User.objects.create_user(
+            username='mgr_wf', password='testpass123',
+            role='lab_manager', laboratory=self.lab,
+            first_name='Priya', last_name='Singh',
+        )
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_engineer_cannot_review(self) -> None:
+        self.api_client.force_authenticate(user=self.engineer)
+        resp = self.api_client.post(f'/api/reports/{self.report.pk}/review/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_manager_review_sets_checked_by(self) -> None:
+        self.api_client.force_authenticate(user=self.manager)
+        resp = self.api_client.post(f'/api/reports/{self.report.pk}/review/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'reviewed')
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.checked_by, self.manager)
+        self.assertIsNotNone(self.report.checked_at)
+
+    def test_review_twice_rejected(self) -> None:
+        self.api_client.force_authenticate(user=self.manager)
+        self.api_client.post(f'/api/reports/{self.report.pk}/review/')
+        resp = self.api_client.post(f'/api/reports/{self.report.pk}/review/')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_approve_requires_review(self) -> None:
+        self.api_client.force_authenticate(user=self.manager)
+        resp = self.api_client.post(f'/api/reports/{self.report.pk}/approve/')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('reviewed', resp.data['detail'])
+
+    def test_approve_after_review_regenerates_files(self) -> None:
+        self.api_client.force_authenticate(user=self.manager)
+        self.api_client.post(f'/api/reports/{self.report.pk}/review/')
+        with self.settings(REPORT_STORAGE_PATH=self.temp_dir):
+            resp = self.api_client.post(f'/api/reports/{self.report.pk}/approve/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'approved')
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, 'approved')
+        self.assertEqual(self.report.approved_by, self.manager)
+        # Approval re-generates the certificate so the signed file carries
+        # the approver and checked-by names.
+        self.assertTrue(self.report.pdf_path)
+        self.assertTrue(Path(self.report.pdf_path).exists())
+        self.assertTrue(self.report.docx_path)
+        self.assertTrue(Path(self.report.docx_path).exists())
+
+    def test_context_includes_checked_by(self) -> None:
+        from django.utils import timezone
+
+        from apps.reports.generators import _build_report_context
+
+        self.report.checked_by = self.manager
+        self.report.checked_at = timezone.now()
+        self.report.save(update_fields=['checked_by', 'checked_at', 'updated_at'])
+        ctx = _build_report_context(self.report)
+        self.assertEqual(ctx['checked_by_name'], 'Priya Singh')
+
+    def test_preview_includes_org_settings(self) -> None:
+        self.api_client.force_authenticate(user=self.engineer)
+        resp = self.api_client.get(f'/api/reports/{self.report.pk}/preview/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('org_settings', resp.data)
+        org = resp.data['org_settings']
+        for key in ('jurisdiction', 'doc_control_number', 'doc_issue_number',
+                    'doc_rev_number', 'doc_issue_date', 'default_remarks',
+                    'logo_data_uri'):
+            self.assertIn(key, org)
+        self.assertTrue(len(org['default_remarks']) > 0)
+        self.assertIn('checked_by', resp.data['report'])
+        self.assertIn('approved_at', resp.data['report'])

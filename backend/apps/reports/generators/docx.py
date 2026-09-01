@@ -24,7 +24,7 @@ from docx.oxml.ns import qn, nsdecls
 from docx.oxml import OxmlElement, parse_xml
 
 from apps.engine.constants import ComplianceStatus, TestType, EccentricityPosition
-from apps.reports.generators import _build_report_context
+from apps.reports.generators import DEFAULT_REMARKS, _build_report_context
 
 logger = logging.getLogger(__name__)
 
@@ -64,22 +64,10 @@ TEST_TYPE_TITLES: dict[str, str] = {
     TestType.ZERO_TRACKING: 'Zero Tracking Test',
 }
 
-IMPORTANT_REMARKS = [
-    'This Test Report shall not be reproduced except in full, without the written approval of the laboratory.',
-    'The results reported relate only to the items tested / calibrated.',
-    'The test results are valid at the time of testing under the stated environmental conditions.',
-    'The expanded measurement uncertainty is stated as the standard measurement uncertainty multiplied '
-    'by the coverage factor k = 2, corresponding to a coverage probability of approximately 95%.',
-    'This report does not constitute a certificate of verification or approval of the instrument for '
-    'trade use under the Legal Metrology Act, 2009 and rules made thereunder.',
-    'Any alteration or modification to the instrument after the date of test shall invalidate this report.',
-    'The instrument shall be re-verified at regular intervals as prescribed under the relevant rules.',
-]
-
 DOC_CONTROL_NO = 'LM-FMT-NAWI-01'
 DOC_ISSUE_NO = '01'
-DOC_ISSUE_DATE = '01.01.2026'
 DOC_REV_NO = '00'
+DOC_ISSUE_DATE_FALLBACK = '01.01.2026'
 
 
 # ===================================================================
@@ -322,7 +310,7 @@ def _add_header_footer(doc, context: dict):
         run = fp.add_run(
             f"Doc No: {context.get('doc_control_number', DOC_CONTROL_NO)}  |  "
             f"Issue No: {context.get('doc_issue_number', DOC_ISSUE_NO)}  |  "
-            f"Issue Date: {DOC_ISSUE_DATE}  |  "
+            f"Issue Date: {context.get('doc_issue_date', DOC_ISSUE_DATE_FALLBACK)}  |  "
             f"Rev No: {context.get('doc_rev_number', DOC_REV_NO)}"
         )
         run.font.size = Pt(7)
@@ -757,23 +745,35 @@ def generate_docx(report) -> str:
     run_ulr.font.size = Pt(10)
     run_ulr.font.bold = True
     run_ulr.font.name = 'Calibri'
+    run_ver = p_cert.add_run(f"   /   Version: {context.get('version', 1)}")
+    run_ver.font.size = Pt(10)
+    run_ver.font.bold = True
+    run_ver.font.name = 'Calibri'
 
-    # Issue date line
+    # Issue date line: approval date when approved, else generation date —
+    # legally distinct from the date of testing.
     formatted_date = _format_date_display(context['session_date'])
-    _add_centered_text(doc, f'Certificate Issue Date: {formatted_date}',
+    issue_date_fmt = _format_date_display(
+        context.get('certificate_issue_date', context['session_date']))
+    _add_centered_text(doc, f'Certificate Issue Date: {issue_date_fmt}',
                         size=10, space_after=8)
 
     # ---------------------------------------------------------------
-    # Customer / Applicant Details
+    # Customer / Applicant Details — from the test session's customer
+    # fields; never fabricated from the lab's own identity.
     # ---------------------------------------------------------------
     doc.add_heading('Customer / Applicant Details', level=2)
 
+    request_date = context.get('request_date', '')
     cust_table = doc.add_table(rows=0, cols=2)
     cust_table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    _add_kv_row(cust_table, 'Customer / Applicant Name', context.get('lab_name', ''))
-    _add_kv_row(cust_table, 'Address', context.get('lab_address', ''))
-    _add_kv_row(cust_table, 'Contact Person', context.get('engineer_name', ''))
-    _add_kv_row(cust_table, 'Test Request Date', formatted_date)
+    _add_kv_row(cust_table, 'Customer / Applicant Name',
+                context.get('customer_name') or '—')
+    _add_kv_row(cust_table, 'Address', context.get('customer_address') or '—')
+    _add_kv_row(cust_table, 'Contact Person',
+                context.get('customer_contact') or '—')
+    _add_kv_row(cust_table, 'Test Request Date',
+                _format_date_display(request_date) if request_date else '—')
     _add_kv_row(cust_table, 'Date of Testing', formatted_date)
     _set_table_borders(cust_table)
     doc.add_paragraph().paragraph_format.space_after = Pt(4)
@@ -812,7 +812,6 @@ def generate_docx(report) -> str:
     if instrument.is_multi_interval:
         _add_kv_row(inst_table, 'Multi-Interval', 'Yes')
     _add_kv_row(inst_table, 'Instrument Location', context.get('lab_address', ''))
-    _add_kv_row(inst_table, 'Equipment ID', instrument.serial_number)
     _set_table_borders(inst_table)
     doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
@@ -852,7 +851,7 @@ def generate_docx(report) -> str:
     remarks_table.alignment = WD_TABLE_ALIGNMENT.LEFT
     cell = remarks_table.rows[0].cells[0]
     cell.text = ''
-    remarks_list = context.get('remarks') or IMPORTANT_REMARKS
+    remarks_list = context.get('remarks') or DEFAULT_REMARKS
     for idx, remark in enumerate(remarks_list, start=1):
         p = cell.add_paragraph() if idx > 1 else cell.paragraphs[0]
         p.paragraph_format.space_after = Pt(2)
@@ -1055,7 +1054,8 @@ def generate_docx(report) -> str:
             'role': 'Checked By',
             'title': 'Lab Manager',
             'name': context.get('checked_by_name') or '________________________',
-            'date': '________________________',
+            'date': _format_date_display(context.get('checked_at', ''))
+            if context.get('checked_at') else '________________________',
         },
         {
             'role': 'Approved By',
@@ -1137,8 +1137,10 @@ def generate_docx(report) -> str:
             logger.exception("QR code generation failed for DOCX; continuing without it")
 
     # ---------------------------------------------------------------
-    # Document Control Footer
+    # End-of-report marker + Document Control Footer
     # ---------------------------------------------------------------
+    _add_centered_text(doc, '--- End of Test Report ---', size=9, bold=True,
+                        color=GRAY_COLOR, space_before=8, space_after=4)
     _add_horizontal_rule(doc)
 
     p_doc_ctrl = doc.add_paragraph()
@@ -1147,7 +1149,7 @@ def generate_docx(report) -> str:
     run_dc = p_doc_ctrl.add_run(
         f"Doc No: {context.get('doc_control_number', DOC_CONTROL_NO)}  |  "
         f"Issue No: {context.get('doc_issue_number', DOC_ISSUE_NO)}  |  "
-        f"Issue Date: {DOC_ISSUE_DATE}  |  "
+        f"Issue Date: {context.get('doc_issue_date', DOC_ISSUE_DATE_FALLBACK)}  |  "
         f"Rev No: {context.get('doc_rev_number', DOC_REV_NO)}"
     )
     run_dc.font.size = Pt(8)

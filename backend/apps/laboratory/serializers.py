@@ -21,8 +21,8 @@ class OrgSettingsSerializer(serializers.ModelSerializer):
         model = OrgSettings
         fields = (
             'jurisdiction', 'report_prefix', 'doc_control_number',
-            'doc_issue_number', 'doc_rev_number', 'default_remarks',
-            'logo_data_uri', 'updated_at',
+            'doc_issue_number', 'doc_rev_number', 'doc_issue_date',
+            'default_remarks', 'logo_data_uri', 'updated_at',
         )
         read_only_fields = ('updated_at',)
 

@@ -17,6 +17,7 @@ import {
 import type { RecentSession } from '@/api/dashboard';
 import PageHeader from '@/components/common/PageHeader';
 import StatusTag from '@/components/common/StatusTag';
+import EmptyState from '@/components/common/EmptyState';
 import MetricCard from '@/components/common/MetricCard';
 import MeasurementErrorChart from '@/components/charts/MeasurementErrorChart';
 import TestingTrendChart from '@/components/charts/TestingTrendChart';
@@ -25,22 +26,22 @@ import PassFailPieChart from '@/components/charts/PassFailPieChart';
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: fetchDashboardStats,
   });
 
-  const { data: monthly, isLoading: monthlyLoading } = useQuery({
+  const { data: monthly, isLoading: monthlyLoading, isError: monthlyError } = useQuery({
     queryKey: ['dashboard-monthly'],
     queryFn: () => fetchMonthlyTests(),
   });
 
-  const { data: recent, isLoading: recentLoading } = useQuery({
+  const { data: recent, isLoading: recentLoading, isError: recentError } = useQuery({
     queryKey: ['dashboard-recent'],
     queryFn: fetchRecentSessions,
   });
 
-  const { data: passFail } = useQuery({
+  const { data: passFail, isError: passFailError } = useQuery({
     queryKey: ['dashboard-pass-fail'],
     queryFn: fetchPassFailSummary,
   });
@@ -52,6 +53,19 @@ export default function Dashboard() {
 
   if (statsLoading || monthlyLoading || recentLoading) {
     return <div style={{ textAlign: 'center', padding: 64 }}><Spin size="large" /></div>;
+  }
+
+  if (statsError) {
+    return (
+      <div>
+        <PageHeader title="Dashboard" />
+        <EmptyState
+          message="Could not load dashboard data."
+          hint="The server may be waking up — this can take up to a minute on free hosting."
+          action={<Button type="primary" onClick={() => refetchStats()}>Retry</Button>}
+        />
+      </div>
+    );
   }
 
   const columns: ColumnsType<RecentSession> = [
@@ -152,16 +166,22 @@ export default function Dashboard() {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginBottom: 32 }}>
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>Testing trends</h2>
-          {monthly && <TestingTrendChart data={monthly.slice(-6)} />}
+      {!(monthlyError && passFailError) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginBottom: 32 }}>
+          {!monthlyError && monthly && (
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>Testing trends</h2>
+              <TestingTrendChart data={monthly.slice(-6)} />
+            </div>
+          )}
+          {!passFailError && passFail && (
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>This month</h2>
+              <PassFailPieChart data={passFail} />
+            </div>
+          )}
         </div>
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>This month</h2>
-          {passFail && <PassFailPieChart data={passFail} />}
-        </div>
-      </div>
+      )}
 
       {errorProfile && errorProfile.points.length > 0 && (
         <div style={{ marginBottom: 32 }}>
@@ -179,19 +199,24 @@ export default function Dashboard() {
         </div>
       )}
 
-      <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>Recent sessions</h2>
-      <Table
-        dataSource={recent ?? []}
-        columns={columns}
-        rowKey="id"
-        size="small"
-        pagination={false}
-        bordered={false}
-        onRow={(record) => ({
-          onClick: () => navigate(`/sessions/${record.id}`),
-          style: { cursor: 'pointer' },
-        })}
-      />
+      {!recentError && (
+        <>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: '#1a1a1a', marginBottom: 16 }}>Recent sessions</h2>
+          <Table
+            dataSource={recent ?? []}
+            columns={columns}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            bordered={false}
+            scroll={{ x: 'max-content' }}
+            onRow={(record) => ({
+              onClick: () => navigate(`/sessions/${record.id}`),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -65,6 +65,10 @@ export interface TestSession {
   verification_type: VerificationType;
   status: SessionStatus;
   overall_verdict: ComplianceStatus | null;
+  customer_name?: string;
+  customer_address?: string;
+  customer_contact?: string;
+  request_date?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -81,6 +85,8 @@ export interface TestObservation {
   trial_number?: number;
   direction?: 'increasing' | 'decreasing';
   timestamp_minutes?: number;
+  delta_load?: string;
+  temperature_c?: string;
 }
 
 export interface TestResult {

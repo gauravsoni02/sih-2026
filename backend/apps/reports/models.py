@@ -1,6 +1,7 @@
 import secrets
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.engine.constants import ComplianceStatus, ReportStatus
@@ -33,6 +34,13 @@ class Report(TimeStampedModel):
         null=True, blank=True,
         related_name='approved_reports',
     )
+    checked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='checked_reports',
+    )
+    checked_at = models.DateTimeField(null=True, blank=True)
     overall_verdict = models.CharField(
         max_length=20, choices=ComplianceStatus.choices
     )
@@ -71,14 +79,26 @@ class Report(TimeStampedModel):
             next_num = 1
         return f"{prefix}{next_num:04d}"
 
+    # Fields that may still change once a report is approved (file paths on
+    # re-sign, soft-delete flag, workflow bookkeeping). Anything else on an
+    # approved report is immutable.
+    APPROVED_MUTABLE_FIELDS = frozenset({
+        'is_deleted', 'updated_at', 'pdf_path', 'docx_path', 'status',
+        'approved_by', 'approved_at', 'checked_by', 'checked_at',
+    })
+
     def save(self, *args, **kwargs) -> None:
         if self.pk:
             try:
                 old = Report.objects.get(pk=self.pk)
                 if old.status == ReportStatus.APPROVED and self.status == ReportStatus.APPROVED:
-                    allowed_fields = kwargs.get('update_fields', [])
-                    if not allowed_fields:
-                        raise ValueError("Cannot modify an approved report")
+                    update_fields = kwargs.get('update_fields') or []
+                    disallowed = set(update_fields) - self.APPROVED_MUTABLE_FIELDS
+                    if not update_fields or disallowed:
+                        raise ValidationError(
+                            "Cannot modify an approved report "
+                            f"(disallowed fields: {sorted(disallowed) or 'all'})."
+                        )
             except Report.DoesNotExist:
                 pass
         super().save(*args, **kwargs)

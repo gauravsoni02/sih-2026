@@ -77,11 +77,12 @@ class TestMPELookup(TestCase):
             subsequent = get_mpe(cls, Decimal(str(load)), e, 'subsequent')
             self.assertEqual(subsequent, initial * 2)
 
-    # Test 5: Class I above max range raises error
-    def test_class_I_above_max_range(self) -> None:
+    # Test 5: Class I has no upper bound (n_max unlimited, R 76-1 Table 3);
+    # loads beyond 200 000e stay in the 1.0e band.
+    def test_class_I_unbounded_above_200000e(self) -> None:
         e = Decimal('0.001')
-        with self.assertRaises(ValueError):
-            get_mpe('I', Decimal('200001') * e, e)
+        self.assertEqual(get_mpe('I', Decimal('200001') * e, e), Decimal('0.001'))
+        self.assertEqual(get_mpe('I', Decimal('1000000') * e, e), Decimal('0.001'))
 
     def test_invalid_accuracy_class(self) -> None:
         with self.assertRaises(ValueError):

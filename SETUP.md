@@ -19,7 +19,7 @@ Step-by-step instructions for setting up the NAWI Test Report Generator on your 
 |------|---------|
 | Docker & Docker Compose | Containerized setup with PostgreSQL and Redis |
 | PostgreSQL 16 | Required for production; development uses SQLite by default |
-| Redis 7 | Required for Celery background tasks (report generation) |
+| Redis 7 | Optional — used for caching; report generation is synchronous |
 
 ---
 
@@ -102,7 +102,7 @@ Edit `.env` and set:
 
 ```
 DJANGO_SECRET_KEY=any-random-string-here
-DATABASE_URL=postgres://nawi:password@postgres:5432/nawi_db
+DATABASE_URL=postgres://nawi:devpassword@postgres:5432/nawi_db
 ```
 
 ### 2. Start the containers
@@ -180,36 +180,10 @@ npm run build    # Type-check + production build
 | `DJANGO_SETTINGS_MODULE` | No | `config.settings.development` | Use `config.settings.production` for production |
 | `DJANGO_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Comma-separated allowed hostnames |
 | `DATABASE_URL` | No | — | PostgreSQL connection URL. Leave empty to use SQLite |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection for Celery |
+| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection for caching (optional; in-memory cache is used when unset) |
 | `REPORT_STORAGE_PATH` | No | `/var/nawi/reports/` | Directory for generated PDF/DOCX reports |
 | `ACCESS_TOKEN_LIFETIME_MINUTES` | No | `15` | JWT access token expiry |
 | `REFRESH_TOKEN_LIFETIME_DAYS` | No | `7` | JWT refresh token expiry |
-
----
-
-## WeasyPrint System Dependencies
-
-WeasyPrint (used for PDF report generation) requires system-level libraries. If you skip this, the app still works but PDF generation will fail.
-
-**Windows:**
-
-Install GTK3 runtime from https://github.com/nickvdyck/weasyprint-win-setup or use `msys2`:
-
-```bash
-pacman -S mingw-w64-x86_64-pango mingw-w64-x86_64-cairo
-```
-
-**macOS:**
-
-```bash
-brew install pango cairo libffi
-```
-
-**Ubuntu/Debian:**
-
-```bash
-sudo apt install python3-cffi python3-brotli libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev shared-mime-info
-```
 
 ---
 
@@ -218,7 +192,7 @@ sudo apt install python3-cffi python3-brotli libpango-1.0-0 libpangocairo-1.0-0 
 ```
 sih-2026/
 ├── backend/
-│   ├── config/            # Django settings, URLs, Celery
+│   ├── config/            # Django settings, URLs, WSGI
 │   ├── common/            # Base models, pagination, exceptions
 │   └── apps/
 │       ├── accounts/      # User model, JWT auth, role permissions
@@ -233,10 +207,10 @@ sih-2026/
 │       ├── api/           # Axios API client modules
 │       ├── components/    # Layout, forms, charts, common
 │       ├── pages/         # Route pages (Dashboard, Instruments, etc.)
-│       ├── services/      # Web Serial, offline storage
+│       ├── services/      # Web Serial device capture
 │       ├── store/         # Zustand state stores
 │       ├── types/         # TypeScript interfaces
-│       └── utils/         # MPE lookup, validation helpers
+│       └── utils/         # MPE lookup, demo data helpers
 ├── docker-compose.yml
 ├── .env.example
 └── README.md

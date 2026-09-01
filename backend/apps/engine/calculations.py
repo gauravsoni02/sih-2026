@@ -45,14 +45,22 @@ def compute_eccentricity_test_load(
 
 def evaluate_eccentricity(
     readings: dict[str, Decimal],
-    center_reading: Decimal,
+    test_load: Decimal,
     mpe: Decimal,
 ) -> tuple[dict[str, Decimal], ComplianceStatus]:
+    """Evaluate the eccentricity test per OIML R 76-1 A.4.7.
+
+    The same test load is applied at each position (center and off-center);
+    the error of indication at every position — indication minus the applied
+    load — must be within the MPE for that load. Comparing corner readings
+    against the center reading would cancel any span bias, so the error is
+    always referenced to the applied load itself.
+    """
     errors: dict[str, Decimal] = {}
     overall = ComplianceStatus.PASS
 
     for position, reading in readings.items():
-        error = reading - center_reading
+        error = reading - test_load
         errors[position] = error
         if abs(error) > mpe:
             overall = ComplianceStatus.FAIL
@@ -135,8 +143,16 @@ def evaluate_sensitivity(
     reading_after: Decimal,
     mpe: Decimal,
 ) -> tuple[Decimal, ComplianceStatus]:
+    """Evaluate the sensitivity test per OIML R 76-1.
+
+    On adding the extra load, the indication must change by at least
+    ``extra_load_mpe_factor`` (0.4 by default) times the MPE applicable
+    at the test load — a merely non-zero movement is not sufficient.
+    """
+    factor = Decimal(get_test_param('sensitivity', 'extra_load_mpe_factor'))
     change = abs(reading_after - reading_before)
-    status = ComplianceStatus.PASS if change > 0 else ComplianceStatus.FAIL
+    required = factor * abs(mpe)
+    status = ComplianceStatus.PASS if change >= required else ComplianceStatus.FAIL
     return change, status
 
 

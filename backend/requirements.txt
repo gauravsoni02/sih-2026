@@ -6,7 +6,6 @@ django-cors-headers>=4.4,<4.5
 dj-database-url>=2.2,<3.0
 python-decouple>=3.8,<4.0
 psycopg2-binary>=2.9,<3.0
-celery>=5.4,<5.5
 redis>=5.0,<6.0
 gunicorn>=22.0,<23.0
 whitenoise>=6.7,<7.0

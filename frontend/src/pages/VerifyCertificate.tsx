@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Spin, Tag } from 'antd';
+import { Button, Card, Spin, Tag } from 'antd';
 import {
   SafetyCertificateOutlined,
   CloseCircleOutlined,
   CheckCircleOutlined,
+  DisconnectOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
 
 interface VerifyResponse {
   valid: boolean;
@@ -48,15 +49,32 @@ export default function VerifyCertificate() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<VerifyResponse | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
 
-  useEffect(() => {
+  const verify = useCallback(() => {
     if (!code) return;
+    setLoading(true);
+    setNotFound(false);
+    setUnreachable(false);
     axios
-      .get<VerifyResponse>(`${API_BASE}/reports/verify/${code}/`)
+      .get<VerifyResponse>(`${API_BASE}/reports/verify/${code}/`, { timeout: 60000 })
       .then((res) => setData(res.data))
-      .catch(() => setNotFound(true))
+      .catch((err: unknown) => {
+        // Only a definitive 404 means the certificate does not exist.
+        // Anything else (network error, timeout, 5xx) is a service problem
+        // and must never be presented as a forgery.
+        if (isAxiosError(err) && err.response?.status === 404) {
+          setNotFound(true);
+        } else {
+          setUnreachable(true);
+        }
+      })
       .finally(() => setLoading(false));
   }, [code]);
+
+  useEffect(() => {
+    verify();
+  }, [verify]);
 
   return (
     <div
@@ -85,6 +103,18 @@ export default function VerifyCertificate() {
         {loading && (
           <div style={{ textAlign: 'center', padding: 40 }}>
             <Spin size="large" />
+          </div>
+        )}
+
+        {!loading && unreachable && (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <DisconnectOutlined style={{ fontSize: 48, color: '#d97706' }} />
+            <h2 style={{ fontSize: 18, marginTop: 12 }}>Verification service unavailable</h2>
+            <p style={{ color: '#888', fontSize: 13 }}>
+              Could not reach the verification service — the server may be
+              waking up. Please try again in a minute.
+            </p>
+            <Button type="primary" onClick={verify}>Try again</Button>
           </div>
         )}
 

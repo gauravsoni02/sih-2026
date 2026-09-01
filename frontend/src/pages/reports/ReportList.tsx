@@ -6,6 +6,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { fetchReports } from '@/api/reports';
 import PageHeader from '@/components/common/PageHeader';
 import StatusTag from '@/components/common/StatusTag';
+import EmptyState from '@/components/common/EmptyState';
 import type { Report } from '@/types/report';
 
 export default function ReportList() {
@@ -55,6 +56,15 @@ export default function ReportList() {
         size="small"
         loading={isLoading}
         bordered={false}
+        scroll={{ x: 'max-content' }}
+        locale={{
+          emptyText: isLoading ? ' ' : (
+            <EmptyState
+              message={statusFilter ? 'No reports match this filter' : 'No reports yet'}
+              hint="Reports appear here after you generate them from a completed test session"
+            />
+          ),
+        }}
         onRow={(r) => ({ onClick: () => navigate(`/reports/${r.id}`), style: { cursor: 'pointer' } })}
         pagination={{
           current: page,

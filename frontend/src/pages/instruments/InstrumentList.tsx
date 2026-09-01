@@ -7,6 +7,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { fetchInstruments, deleteInstrument } from '@/api/instruments';
 import PageHeader from '@/components/common/PageHeader';
 import StatusTag from '@/components/common/StatusTag';
+import EmptyState from '@/components/common/EmptyState';
 import type { Instrument } from '@/types/instrument';
 
 export default function InstrumentList() {
@@ -122,6 +123,15 @@ export default function InstrumentList() {
         size="small"
         loading={isLoading}
         bordered={false}
+        scroll={{ x: 'max-content' }}
+        locale={{
+          emptyText: isLoading ? ' ' : (
+            <EmptyState
+              message={Object.values(filters).some(Boolean) ? 'No instruments match these filters' : 'No instruments registered yet'}
+              hint='Add your first instrument with the "Register instrument" button above'
+            />
+          ),
+        }}
         onRow={(record) => ({ onClick: () => navigate(`/instruments/${record.id}`), style: { cursor: 'pointer' } })}
         pagination={{
           current: page,

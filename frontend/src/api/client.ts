@@ -3,6 +3,8 @@ import axios from 'axios';
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: { 'Content-Type': 'application/json' },
+  // Generous timeout: the free-tier backend can take ~60s to cold-start.
+  timeout: 60000,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -17,7 +19,11 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // A 401 from the login/refresh endpoints themselves is a credential problem,
+    // not an expired session — let the caller handle it (no redirect loop).
+    const isAuthEndpoint = typeof originalRequest?.url === 'string' &&
+      (originalRequest.url.includes('/auth/login/') || originalRequest.url.includes('/auth/refresh/'));
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
       const refresh = localStorage.getItem('refresh_token');
       if (refresh) {

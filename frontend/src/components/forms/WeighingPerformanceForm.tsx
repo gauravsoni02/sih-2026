@@ -16,6 +16,8 @@ interface Row {
   indicated_value: string;
   correction: string;
   direction: 'increasing' | 'decreasing';
+  /** Optional changeover-point extra load ΔL (half-division method). */
+  delta_load?: string;
 }
 
 interface LiveResult {
@@ -94,20 +96,6 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
     return points;
   }, [rows, liveResults]);
 
-  const serverChartData = useMemo<ErrorChartPoint[]>(() => {
-    return wpResults
-      .filter((r) => r.computed_error && r.mpe_applicable)
-      .map((r) => ({
-        nominalLoad: parseFloat(r.test_point_load ?? '0'),
-        error: parseFloat(r.computed_error),
-        upperMpe: parseFloat(r.mpe_applicable),
-        lowerMpe: -parseFloat(r.mpe_applicable),
-      }))
-      .sort((a, b) => a.nominalLoad - b.nominalLoad);
-  }, [wpResults]);
-
-  const chartData = liveChartData.length > 0 ? liveChartData : serverChartData;
-
   const mutation = useMutation({
     mutationFn: (obs: Parameters<typeof submitObservations>[1]) => submitObservations(sessionId, obs),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['results', sessionId] }),
@@ -146,6 +134,7 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
         correction: r.correction || '0',
         direction: r.direction,
         trial_number: i + 1,
+        ...(r.delta_load ? { delta_load: r.delta_load } : {}),
       }));
     if (obs.length > 0) mutation.mutate(obs);
   };
@@ -210,6 +199,21 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
           style={{ width: '100%' }}
           stringMode
           onChange={(v) => updateRow(record.key, 'correction', String(v ?? '0'))}
+        />
+      ),
+    },
+    {
+      title: 'Δ load (changeover)',
+      dataIndex: 'delta_load',
+      width: 140,
+      render: (val: string | undefined, record: Row) => (
+        <InputNumber
+          value={val || undefined}
+          size="small"
+          style={{ width: '100%' }}
+          stringMode
+          placeholder="optional"
+          onChange={(v) => updateRow(record.key, 'delta_load', String(v ?? ''))}
         />
       ),
     },
@@ -290,6 +294,11 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
       width: 80,
       render: (s: string) => <StatusTag status={s} />,
     },
+    {
+      title: 'Remarks',
+      dataIndex: 'remarks',
+      render: (v: string) => v || '—',
+    },
   ];
 
   return (
@@ -327,14 +336,19 @@ export default function WeighingPerformanceForm({ sessionId, results, instrument
         </Button>
       </div>
 
-      {chartData.length >= 2 && (
-        <div style={{ marginTop: 24 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 8 }}>
-            Error vs load
-          </h3>
-          <MeasurementErrorChart data={chartData} unit={unit} height={240} />
-        </div>
-      )}
+      <div style={{ marginTop: 24 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', marginBottom: 8 }}>
+          Live entry preview
+        </h3>
+        {liveChartData.length >= 2 ? (
+          <MeasurementErrorChart data={liveChartData} unit={unit} height={240} />
+        ) : (
+          <p style={{ fontSize: 12, color: '#999999', margin: 0 }}>
+            Enter observations to preview the error curve. The official calculated
+            profile appears at the top of the session page after Calculate.
+          </p>
+        )}
+      </div>
 
       {wpResults.length > 0 && (
         <div style={{ marginTop: 32 }}>

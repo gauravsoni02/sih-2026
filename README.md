@@ -17,7 +17,7 @@ Built for government metrology laboratories in India under the Legal Metrology A
 * **Live device capture** — read a real balance over USB via the Web Serial API, or use the built-in simulated balance for demos
 * **In-browser report preview** — print-ready formal report layout with Government of India header
 * **Dashboard analytics** — metric cards with trends, testing trend charts (pass/fail stacked bars), pass/fail pie chart, measurement error profile
-* **Activity log** — audit trail of all changes with search and severity filtering
+* **Activity log** — audit trail of all changes with search and impact filtering
 * **Settings** — lab branding (logo, report prefix, document control), testing defaults, serial device configuration
 
 ## Tech stack:
@@ -28,7 +28,7 @@ Built for government metrology laboratories in India under the Legal Metrology A
 | Frontend         | React 18, TypeScript 5.5, Vite, Ant Design 5.x, Zustand, React Query |
 | Charts           | Recharts                                                             |
 | Database         | PostgreSQL 16 (SQLite for development)                               |
-| Task queue       | Celery + Redis                                                       |
+| Cache            | Redis (optional; falls back to in-memory cache)                      |
 | Reports          | ReportLab (PDF), python-docx (DOCX), pyhanko (signing), qrcode       |
 | Auth             | djangorestframework-simplejwt                                        |
 | Audit            | django-auditlog                                                      |
@@ -68,7 +68,7 @@ docker compose exec web python manage.py createsuperuser
 
 ```text
 ├── backend/
-│   ├── config/            # Django settings, URLs, WSGI, Celery
+│   ├── config/            # Django settings, URLs, WSGI
 │   ├── common/            # Base models, pagination, exceptions
 │   └── apps/
 │       ├── accounts/      # User model, JWT auth, permissions
@@ -83,10 +83,10 @@ docker compose exec web python manage.py createsuperuser
 │       ├── api/           # Axios API modules
 │       ├── components/    # Layout, forms, charts, common
 │       ├── pages/         # Route pages
-│       ├── services/      # Web Serial, offline storage
+│       ├── services/      # Web Serial device capture
 │       ├── store/         # Zustand stores
 │       ├── types/         # TypeScript interfaces
-│       └── utils/         # MPE lookup, validation, demo data
+│       └── utils/         # MPE lookup, demo data
 ├── CLAUDE.md              # Project spec and domain knowledge
 ├── docker-compose.yml
 └── .env.example
@@ -109,8 +109,8 @@ Copy `.env.example` to `.env` and fill in:
 ```env
 DJANGO_SECRET_KEY=
 DJANGO_DEBUG=True
-DATABASE_URL=postgres://nawi:password@localhost:5432/nawi_db
-REDIS_URL=redis://localhost:6379/0
+DATABASE_URL=postgres://nawi:devpassword@localhost:5432/nawi_db
+REDIS_URL=redis://localhost:6379/0  # optional — used for caching; the app falls back to an in-memory cache
 ```
 
 ## License

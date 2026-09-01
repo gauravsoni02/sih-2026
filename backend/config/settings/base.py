@@ -110,6 +110,7 @@ REST_FRAMEWORK = {
         'anon': '30/minute',
         'user': '120/minute',
         'auth': '10/minute',
+        'report_generate': '20/hour',
     },
 }
 
@@ -124,14 +125,6 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
-
-# Celery
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = TIME_ZONE
 
 # Report storage
 REPORT_STORAGE_PATH = config('REPORT_STORAGE_PATH', default=str(BASE_DIR / 'reports'))

@@ -10,6 +10,7 @@ interface Row {
   test_point_load: string;
   indicated_value: string;
   correction: string;
+  temperature_c: string;
 }
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
 export default function TemperatureForm({ sessionId, results }: Props) {
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<Row[]>([
-    { key: 1, test_point_load: '', indicated_value: '', correction: '0' },
+    { key: 1, test_point_load: '', indicated_value: '', correction: '0', temperature_c: '' },
   ]);
 
   const tempResults = (results ?? []).filter((r) => r.test_type === 'temperature');
@@ -34,11 +35,12 @@ export default function TemperatureForm({ sessionId, results }: Props) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
   };
 
-  const addRow = () => setRows((prev) => [...prev, { key: Date.now(), test_point_load: '', indicated_value: '', correction: '0' }]);
+  const addRow = () => setRows((prev) => [...prev, { key: Date.now(), test_point_load: '', indicated_value: '', correction: '0', temperature_c: '' }]);
 
   const saveObservations = () => {
     const obs = rows.filter((r) => r.test_point_load && r.indicated_value).map((r, i) => ({
       test_type: 'temperature' as const, test_point_load: r.test_point_load, indicated_value: r.indicated_value, correction: r.correction || '0', trial_number: i + 1,
+      ...(r.temperature_c ? { temperature_c: r.temperature_c } : {}),
     }));
     if (obs.length > 0) mutation.mutate(obs);
   };
@@ -47,9 +49,12 @@ export default function TemperatureForm({ sessionId, results }: Props) {
     <div>
       <p style={{ fontSize: 12, color: '#999999', marginBottom: 16 }}>
         Record weighing performance at different temperatures within the operating range.
+        Record the ambient temperature per reading; readings at the same load across
+        temperatures are also checked for drift (1e per 5°C, R 76-1).
       </p>
       <Table dataSource={rows} columns={[
         { title: '#', width: 50, render: (_: unknown, __: unknown, i: number) => i + 1 },
+        { title: 'Temperature (°C)', dataIndex: 'temperature_c', width: 140, render: (v: string, r: Row) => <InputNumber value={v || undefined} size="small" style={{ width: '100%' }} stringMode step="0.1" onChange={(val) => updateRow(r.key, 'temperature_c', String(val ?? ''))} /> },
         { title: 'Reference load', dataIndex: 'test_point_load', render: (v: string, r: Row) => <InputNumber value={v || undefined} size="small" style={{ width: '100%' }} stringMode onChange={(val) => updateRow(r.key, 'test_point_load', String(val ?? ''))} /> },
         { title: 'Indicated value', dataIndex: 'indicated_value', render: (v: string, r: Row) => <InputNumber value={v || undefined} size="small" style={{ width: '100%' }} stringMode onChange={(val) => updateRow(r.key, 'indicated_value', String(val ?? ''))} /> },
         { title: 'Correction', dataIndex: 'correction', width: 120, render: (v: string, r: Row) => <InputNumber value={v || undefined} size="small" style={{ width: '100%' }} stringMode onChange={(val) => updateRow(r.key, 'correction', String(val ?? '0'))} /> },
@@ -62,8 +67,9 @@ export default function TemperatureForm({ sessionId, results }: Props) {
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Results</h3>
           <Table dataSource={tempResults} columns={[
             { title: 'Error', dataIndex: 'computed_error', align: 'right' as const },
-            { title: 'MPE', dataIndex: 'mpe_applicable', align: 'right' as const },
+            { title: 'MPE', dataIndex: 'mpe_applicable', align: 'right' as const, render: (v: string | null) => v ?? '—' },
             { title: 'Status', dataIndex: 'compliance_status', render: (s: string) => <StatusTag status={s} /> },
+            { title: 'Remarks', dataIndex: 'remarks', render: (v: string) => v || '—' },
           ]} rowKey="id" size="small" pagination={false} bordered={false} />
         </div>
       )}

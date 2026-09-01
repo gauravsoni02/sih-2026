@@ -34,6 +34,7 @@ class OrgSettings(TimeStampedModel):
     doc_control_number = models.CharField(max_length=50, default='LM-FMT-NAWI-01')
     doc_issue_number = models.CharField(max_length=10, default='01')
     doc_rev_number = models.CharField(max_length=10, default='00')
+    doc_issue_date = models.CharField(max_length=20, default='01.01.2026')
     # One remark per list entry; empty list means "use built-in defaults"
     default_remarks = models.JSONField(default=list, blank=True)
     # data: URI (e.g. data:image/png;base64,...) so no media storage is needed

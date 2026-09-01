@@ -186,6 +186,7 @@ export default function ReportSearch() {
             size="small"
             pagination={false}
             bordered={false}
+            scroll={{ x: 'max-content' }}
             onRow={(record) => ({
               onClick: () => navigate(`/reports/${record.id}`),
               style: { cursor: 'pointer' },

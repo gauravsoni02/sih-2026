@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -11,16 +12,23 @@ from apps.accounts.permissions import CanWrite
 from apps.engine.calculations import (
     check_error_compliance,
     compute_error,
+    compute_error_half_division,
     evaluate_creep,
     evaluate_discrimination,
     evaluate_eccentricity,
     evaluate_repeatability,
     evaluate_sensitivity,
+    evaluate_temperature_zero_drift,
     evaluate_zero_return,
     is_discrimination_applicable,
 )
 from apps.engine.compliance import overall_verdict
-from apps.engine.constants import ComplianceStatus, SessionStatus, TestType
+from apps.engine.constants import (
+    ComplianceStatus,
+    ReportStatus,
+    SessionStatus,
+    TestType,
+)
 from apps.engine.mpe import get_mpe, get_mpe_multi_interval
 from apps.engine.uncertainty import (
     compute_uncertainty_budget,
@@ -35,6 +43,7 @@ from apps.engine.test_procedures import (
     get_tests_for_evaluation,
     get_verification_type_for_evaluation,
     validate_environmental_conditions,
+    validate_repeatability_readings,
     validate_test_completeness,
 )
 
@@ -48,6 +57,36 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_decimal(value: Decimal) -> str:
+    """Human-friendly Decimal rendering: strips trailing zeros without
+    switching to scientific notation (normalize() alone renders 500.000000
+    as 5E+2)."""
+    normalized = value.normalize()
+    if normalized == normalized.to_integral_value():
+        return str(normalized.quantize(Decimal('1')))
+    return str(normalized)
+
+
+SESSION_LOCKED_DETAIL = (
+    'This session has an approved report and can no longer be modified.'
+)
+
+
+class SessionLockedError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = SESSION_LOCKED_DETAIL
+    default_code = 'session_locked'
+
+
+def _session_is_locked(session: 'TestSession') -> bool:
+    """A session with an approved (non-deleted) report is immutable: the
+    certificate has legal standing and the underlying data must not diverge
+    from it."""
+    return session.reports.filter(
+        status=ReportStatus.APPROVED, is_deleted=False,
+    ).exists()
 
 
 class TestSessionViewSet(viewsets.ModelViewSet):
@@ -64,12 +103,24 @@ class TestSessionViewSet(viewsets.ModelViewSet):
             return TestSessionListSerializer
         return TestSessionSerializer
 
+    def perform_update(self, serializer) -> None:
+        if _session_is_locked(serializer.instance):
+            raise SessionLockedError()
+        serializer.save()
+
     def perform_destroy(self, instance: TestSession) -> None:
+        if _session_is_locked(instance):
+            raise SessionLockedError()
         instance.soft_delete()
 
     @action(detail=True, methods=['post'])
     def observations(self, request: Request, pk: str = None) -> Response:
         session = self.get_object()
+        if _session_is_locked(session):
+            return Response(
+                {'detail': SESSION_LOCKED_DETAIL},
+                status=status.HTTP_409_CONFLICT,
+            )
         data = request.data if isinstance(request.data, list) else [request.data]
 
         for item in data:
@@ -94,6 +145,11 @@ class TestSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def calculate(self, request: Request, pk: str = None) -> Response:
         session = self.get_object()
+        if _session_is_locked(session):
+            return Response(
+                {'detail': SESSION_LOCKED_DETAIL},
+                status=status.HTTP_409_CONFLICT,
+            )
         instrument = session.instrument
 
         with transaction.atomic():
@@ -145,6 +201,43 @@ class TestSessionViewSet(viewsets.ModelViewSet):
                 f"R 76-2 requires additional tests for "
                 f"{session.get_evaluation_type_display()}: {labels}"
             )
+
+        # Minimum weighing test points: every zone/boundary point of the
+        # R 76-2 test plan should have a recorded observation.
+        wp_loads = {
+            o.test_point_load
+            for o in observations.filter(test_type=TestType.WEIGHING_PERFORMANCE)
+            if o.test_point_load is not None
+        }
+        if wp_loads:
+            try:
+                planned_points = generate_weighing_test_points(
+                    accuracy_class=instrument.accuracy_class,
+                    max_capacity=instrument.max_capacity,
+                    e=instrument.verification_scale_interval_e,
+                    min_capacity=instrument.min_capacity,
+                    evaluation_type=session.evaluation_type,
+                )
+            except ValueError:
+                planned_points = []
+            missing_points = [p for p in planned_points if p not in wp_loads]
+            if missing_points:
+                pts = ', '.join(_fmt_decimal(p) for p in missing_points)
+                r76_2_warnings.append(
+                    f"R 76-2 weighing test plan points not recorded: {pts} "
+                    f"{instrument.unit} (zone coverage incomplete)"
+                )
+
+        # Minimum repeatability repetitions per test load.
+        rep_groups: dict[Decimal, int] = {}
+        for o in observations.filter(test_type=TestType.REPEATABILITY):
+            if o.test_point_load is not None:
+                rep_groups[o.test_point_load] = rep_groups.get(o.test_point_load, 0) + 1
+        for rep_load, count in sorted(rep_groups.items()):
+            for w in validate_repeatability_readings(count, session.evaluation_type):
+                r76_2_warnings.append(
+                    f"{w} (at load {_fmt_decimal(rep_load)} {instrument.unit})"
+                )
 
         result_serializer = TestResultSerializer(all_results, many=True)
         response_data = {
@@ -252,7 +345,9 @@ def _calculate_test_type(
     if test_type == TestType.WEIGHING_PERFORMANCE:
         rep_std = _session_repeatability_std_dev(session)
         d = instrument.actual_scale_interval_d
-        for obs in observations:
+        obs_list = list(observations)
+        mpe_by_load: dict[Decimal, Decimal] = {}
+        for obs in obs_list:
             load = obs.test_point_load
             try:
                 mpe = _get_mpe_for_instrument(instrument, load, verification_type)
@@ -264,7 +359,18 @@ def _calculate_test_type(
                     remarks=f'Load {load} out of range for class {instrument.accuracy_class}',
                 ))
                 continue
-            error = compute_error(obs.indicated_value, load, obs.correction)
+            mpe_by_load[load] = mpe
+            if obs.delta_load is not None:
+                # Changeover-point (half-division) method, R 76-2 A.4.4.3:
+                # E = I + 0.5d − ΔL − L, resolving errors finer than d.
+                error = compute_error_half_division(
+                    obs.indicated_value, load, d=d,
+                    delta_load=obs.delta_load, correction=obs.correction,
+                )
+                remarks = 'Changeover-point (half-division) method'
+            else:
+                error = compute_error(obs.indicated_value, load, obs.correction)
+                remarks = ''
             compliance = check_error_compliance(error, mpe)
             budget = compute_uncertainty_budget(d=d, mpe=mpe, rep_std_dev=rep_std)
             results.append(TestResult(
@@ -272,17 +378,53 @@ def _calculate_test_type(
                 test_point_load=load, computed_error=error,
                 mpe_applicable=mpe, compliance_status=compliance,
                 expanded_uncertainty=round_uncertainty(budget['expanded'], d),
+                remarks=remarks,
+            ))
+
+        # Hysteresis: at each load tested in both directions, the difference
+        # between the increasing and decreasing indications must be within
+        # the MPE for that load (R 76-1 3.6.3 / A.4.4.5).
+        by_load: dict[Decimal, dict[str, TestObservation]] = {}
+        for obs in obs_list:
+            if obs.test_point_load is None or obs.direction not in (
+                'increasing', 'decreasing',
+            ):
+                continue
+            slot = by_load.setdefault(obs.test_point_load, {})
+            slot.setdefault(obs.direction, obs)
+        for load, pair in sorted(by_load.items()):
+            inc = pair.get('increasing')
+            dec = pair.get('decreasing')
+            if not inc or not dec:
+                continue
+            mpe = mpe_by_load.get(load)
+            if mpe is None:
+                continue
+            if inc.indicated_value is None or dec.indicated_value is None:
+                continue
+            hysteresis = abs(inc.indicated_value - dec.indicated_value)
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=inc,
+                test_point_load=load, computed_error=hysteresis,
+                mpe_applicable=mpe,
+                compliance_status=(
+                    ComplianceStatus.PASS if hysteresis <= mpe
+                    else ComplianceStatus.FAIL
+                ),
+                remarks='Hysteresis (increasing vs decreasing)',
             ))
 
     elif test_type == TestType.ECCENTRICITY:
-        center_obs = observations.filter(position='center').first()
-        if center_obs:
-            center_reading = center_obs.indicated_value
-            load = center_obs.test_point_load
+        # R 76-1 A.4.7: the same test load is applied at each position and
+        # the error of indication (indication − applied load) at EVERY
+        # position, center included, must be within the MPE for that load.
+        obs_list = [o for o in observations if o.indicated_value is not None]
+        if obs_list:
+            load = obs_list[0].test_point_load
             try:
                 mpe = _get_mpe_for_instrument(instrument, load, verification_type)
             except ValueError:
-                for obs in observations:
+                for obs in obs_list:
                     results.append(TestResult(
                         session=session, test_type=test_type, observation=obs,
                         test_point_load=load, computed_error=Decimal('0'),
@@ -291,21 +433,25 @@ def _calculate_test_type(
                         position=obs.position,
                     ))
                 return results
-            corner_obs = observations.exclude(position='center')
-            readings = {o.position: o.indicated_value for o in corner_obs}
-            errors, ecc_status = evaluate_eccentricity(readings, center_reading, mpe)
-            for obs in observations:
+            readings = {o.position: o.indicated_value for o in obs_list}
+            errors, _ = evaluate_eccentricity(readings, load, mpe)
+            center_reading = readings.get('center')
+            for obs in obs_list:
                 error = errors.get(obs.position, Decimal('0'))
+                remarks = ''
+                if obs.position != 'center' and center_reading is not None:
+                    diff = obs.indicated_value - center_reading
+                    remarks = (
+                        f'Difference vs center indication: {_fmt_decimal(diff)} '
+                        f'{instrument.unit} (informative)'
+                    )
                 results.append(TestResult(
                     session=session, test_type=test_type, observation=obs,
                     test_point_load=load, computed_error=error,
                     mpe_applicable=mpe,
-                    compliance_status=(
-                        check_error_compliance(error, mpe)
-                        if obs.position != 'center'
-                        else ComplianceStatus.PASS
-                    ),
+                    compliance_status=check_error_compliance(error, mpe),
                     position=obs.position,
+                    remarks=remarks,
                 ))
 
     elif test_type == TestType.REPEATABILITY:
@@ -390,8 +536,8 @@ def _calculate_test_type(
     elif test_type == TestType.SENSITIVITY:
         # Before/after pairs share a trial_number; the form marks "before"
         # as direction=increasing and "after" as direction=decreasing.
-        # Criterion: adding 1d extra load must perceptibly change the
-        # indication (R 76-1 sensitivity requirement).
+        # Criterion (R 76-1): adding the extra load must change the
+        # indication by at least 0.4 × MPE at the test load.
         pairs: dict[int, dict[str, TestObservation]] = {}
         for obs in observations:
             pairs.setdefault(obs.trial_number, {})[obs.direction or ''] = obs
@@ -400,17 +546,31 @@ def _calculate_test_type(
             after = pair.get('decreasing')
             if not before or not after:
                 continue
+            load = before.test_point_load or Decimal('0')
+            try:
+                # At zero load this yields the minimum-zone MPE (0.5e).
+                mpe = _get_mpe_for_instrument(instrument, load, verification_type)
+            except ValueError:
+                results.append(TestResult(
+                    session=session, test_type=test_type, observation=after,
+                    test_point_load=load, computed_error=Decimal('0'),
+                    compliance_status=ComplianceStatus.FAIL,
+                    remarks=f'Load {load} out of range for class {instrument.accuracy_class}',
+                    trial_number=trial,
+                ))
+                continue
             change, sens_status = evaluate_sensitivity(
                 before.indicated_value or Decimal('0'),
                 after.indicated_value or Decimal('0'),
-                Decimal('0'),
+                mpe,
             )
             results.append(TestResult(
                 session=session, test_type=test_type, observation=after,
-                test_point_load=before.test_point_load,
+                test_point_load=load,
                 computed_error=change, trial_number=trial,
+                mpe_applicable=mpe,
                 compliance_status=sens_status,
-                remarks='Indication change on adding 1d extra load',
+                remarks='Indication change on adding extra load (must be ≥ 0.4 × MPE)',
             ))
 
     elif test_type == TestType.ZERO_TRACKING:
@@ -493,8 +653,72 @@ def _calculate_test_type(
                     remarks='Span variation across measurements',
                 ))
 
+    elif test_type == TestType.TEMPERATURE:
+        # Per observation: the indication error must stay within the MPE at
+        # the tested temperature. Additionally, when two or more
+        # observations at the same load record their temperature, the change
+        # of error between the temperature extremes is checked against the
+        # R 76-1 zero-drift limit (e per N °C for the class).
+        e = instrument.verification_scale_interval_e
+        temp_groups: dict[Decimal, list] = {}
+        for obs in observations:
+            load = obs.test_point_load or Decimal('0')
+            try:
+                mpe = _get_mpe_for_instrument(instrument, load, verification_type)
+            except ValueError:
+                results.append(TestResult(
+                    session=session, test_type=test_type, observation=obs,
+                    test_point_load=load, computed_error=Decimal('0'),
+                    compliance_status=ComplianceStatus.FAIL,
+                    remarks=f'Load {load} out of range for class {instrument.accuracy_class}',
+                ))
+                continue
+            error = compute_error(
+                obs.indicated_value or Decimal('0'), load, obs.correction,
+            )
+            remarks = (
+                f'At {_fmt_decimal(obs.temperature_c)}°C'
+                if obs.temperature_c is not None else ''
+            )
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=obs,
+                test_point_load=load, computed_error=error,
+                mpe_applicable=mpe,
+                compliance_status=check_error_compliance(error, mpe),
+                remarks=remarks,
+            ))
+            if obs.temperature_c is not None:
+                temp_groups.setdefault(load, []).append((obs, error))
+
+        for load, entries in sorted(temp_groups.items()):
+            if len(entries) < 2:
+                continue
+            entries.sort(key=lambda item: item[0].temperature_c)
+            (obs_min, err_min) = entries[0]
+            (obs_max, err_max) = entries[-1]
+            t_min = obs_min.temperature_c
+            t_max = obs_max.temperature_c
+            if t_min == t_max:
+                continue
+            drift_status = evaluate_temperature_zero_drift(
+                zero_change=err_max - err_min,
+                temp_change=t_max - t_min,
+                accuracy_class=instrument.accuracy_class,
+                e=e,
+            )
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=obs_max,
+                test_point_load=load,
+                computed_error=err_max - err_min,
+                compliance_status=drift_status,
+                remarks=(
+                    f'Temperature effect on error over '
+                    f'{_fmt_decimal(t_min)}°C → {_fmt_decimal(t_max)}°C span'
+                ),
+            ))
+
     else:
-        # Temperature, tilt, power supply and durability: R 76-1 requires
+        # Tilt, power supply and durability: R 76-1 requires
         # the indication error to stay within the MPE under the disturbance,
         # which is exactly this generic evaluation.
         for obs in observations:

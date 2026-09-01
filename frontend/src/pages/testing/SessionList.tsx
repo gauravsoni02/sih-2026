@@ -7,6 +7,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { fetchSessions, deleteSession } from '@/api/sessions';
 import PageHeader from '@/components/common/PageHeader';
 import StatusTag from '@/components/common/StatusTag';
+import EmptyState from '@/components/common/EmptyState';
 import type { TestSession } from '@/types/session';
 
 export default function SessionList() {
@@ -133,6 +134,15 @@ export default function SessionList() {
         size="small"
         loading={isLoading}
         bordered={false}
+        scroll={{ x: 'max-content' }}
+        locale={{
+          emptyText: isLoading ? ' ' : (
+            <EmptyState
+              message={statusFilter ? 'No test sessions match this filter' : 'No test sessions yet'}
+              hint='Start one with the "New test session" button above'
+            />
+          ),
+        }}
         onRow={(r) => ({ onClick: () => navigate(`/sessions/${r.id}`), style: { cursor: 'pointer' } })}
         pagination={{
           current: page,

@@ -43,6 +43,10 @@ class TestSession(TimeStampedModel):
         max_length=20, default='initial',
         choices=[('initial', 'Initial'), ('subsequent', 'Subsequent')],
     )
+    customer_name = models.CharField(max_length=255, blank=True)
+    customer_address = models.TextField(blank=True)
+    customer_contact = models.CharField(max_length=255, blank=True)
+    request_date = models.DateField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=SessionStatus.choices, default=SessionStatus.DRAFT
     )
@@ -85,6 +89,18 @@ class TestObservation(TimeStampedModel):
     timestamp_minutes = models.DecimalField(
         max_digits=6, decimal_places=1, null=True, blank=True,
         help_text='Minutes elapsed, for creep tests (0, 15, 30)',
+    )
+    delta_load = models.DecimalField(
+        max_digits=15, decimal_places=6, null=True, blank=True,
+        help_text=(
+            'Additional load ΔL at which the indication changed over to '
+            'I + d (changeover-point / half-division method, R 76-2 A.4.4.3). '
+            'When set, the error is computed as E = I + 0.5d − ΔL − L.'
+        ),
+    )
+    temperature_c = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Ambient temperature (°C) at which this observation was taken',
     )
 
     class Meta:

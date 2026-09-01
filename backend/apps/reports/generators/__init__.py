@@ -31,6 +31,9 @@ DEFAULT_REMARKS = [
     'stable, level surface.',
     'Reference standards used are traceable to National / International '
     'Standards.',
+    'Conformity is assessed by simple acceptance as per ILAC-G8: the '
+    'indication error is compared directly with the MPE; measurement '
+    'uncertainty is not deducted from the tolerance limit.',
 ]
 
 
@@ -90,6 +93,8 @@ def build_uncertainty_budget(session) -> dict[str, Any] | None:
 
 
 def _build_report_context(report) -> dict[str, Any]:
+    from decouple import config
+
     from apps.laboratory.models import OrgSettings
 
     session = report.session
@@ -104,6 +109,21 @@ def _build_report_context(report) -> dict[str, Any]:
         approved_by_name = report.approved_by.get_full_name() or report.approved_by.username
     if report.approved_at:
         approved_at = report.approved_at.strftime('%Y-%m-%d')
+    checked_by_name = ''
+    checked_at = ''
+    if getattr(report, 'checked_by', None):
+        checked_by_name = report.checked_by.get_full_name() or report.checked_by.username
+    if getattr(report, 'checked_at', None):
+        checked_at = report.checked_at.strftime('%Y-%m-%d')
+
+    # Legally the certificate is issued when approved; before approval the
+    # draft carries its generation date.
+    issue_dt = report.approved_at or report.created_at
+    certificate_issue_date = issue_dt.strftime('%Y-%m-%d')
+
+    # Customer fields live on TestSession (may not exist on older schemas);
+    # blank means "render an em dash", never the lab's own identity.
+    request_date = getattr(session, 'request_date', None)
 
     return {
         'report_number': report.report_number,
@@ -125,10 +145,16 @@ def _build_report_context(report) -> dict[str, Any]:
         'humidity': session.humidity,
         'barometric_pressure': session.barometric_pressure,
         'engineer_name': engineer_name,
-        'checked_by_name': '',
+        'checked_by_name': checked_by_name,
+        'checked_at': checked_at,
         'approved_by_name': approved_by_name,
         'approved_at': approved_at,
-        'software_version': '1.0',
+        'certificate_issue_date': certificate_issue_date,
+        'customer_name': getattr(session, 'customer_name', '') or '',
+        'customer_address': getattr(session, 'customer_address', '') or '',
+        'customer_contact': getattr(session, 'customer_contact', '') or '',
+        'request_date': str(request_date) if request_date else '',
+        'software_version': config('SOFTWARE_VERSION', default='1.0'),
         'verification_code': report.verification_code,
         'verify_url': (
             f"{settings.FRONTEND_URL.rstrip('/')}/verify/{report.verification_code}"
@@ -137,6 +163,7 @@ def _build_report_context(report) -> dict[str, Any]:
         'doc_control_number': org.doc_control_number,
         'doc_issue_number': org.doc_issue_number,
         'doc_rev_number': org.doc_rev_number,
+        'doc_issue_date': org.doc_issue_date,
         'remarks': org.default_remarks or DEFAULT_REMARKS,
         'logo_data_uri': org.logo_data_uri,
     }

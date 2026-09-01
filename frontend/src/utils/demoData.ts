@@ -111,6 +111,9 @@ export const DEMO_SESSION = {
   humidity: 48.5,
   barometric_pressure: 1013.2,
   evaluation_type: 'initial_verification',
+  customer_name: 'M/s Precision Traders Pvt. Ltd.',
+  customer_address: 'Plot 14, Industrial Area, New Delhi – 110020',
+  customer_contact: 'Rajesh Kumar',
 };
 
 function r(value: number, decimals: number): number {
@@ -141,11 +144,11 @@ export function getDemoObservations(inst: InstrumentInfo | undefined, shouldPass
     eccentricity: getEccentricityDemo(eccLoad, e, d, dp, cls, shouldPass),
     repeatability: getRepeatabilityDemo(halfMax, e, d, dp, cls, shouldPass),
     discrimination: getDiscriminationDemo(min, halfMax, max, d, dp, shouldPass),
-    sensitivity: getSensitivityDemo(max, d, e, dp, shouldPass),
+    sensitivity: getSensitivityDemo(max, d, e, dp, cls, shouldPass),
     tare: getTareDemo(max, e, d, dp, cls, shouldPass),
     creep: getCreepDemo(max, e, d, dp, shouldPass),
     zero_tracking: getZeroTrackingDemo(e, d, dp, shouldPass),
-    temperature: getStandardDemo([min, halfMax, max], e, d, dp, cls, shouldPass),
+    temperature: getTemperatureDemo([min, halfMax, max], e, d, dp, cls, shouldPass),
     tilt: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
     power_supply: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
     durability: getStandardDemo([halfMax, max], e, d, dp, cls, shouldPass),
@@ -174,8 +177,9 @@ function randFailError(limit: number, d: number, dp: number): number {
 
 function mpeFactorFor(accuracyClass: string, m: number): number {
   // OIML R 76-1 Table 6 zone boundaries in number of intervals (m = load/e)
+  // Class I's second zone is unbounded (n_max unlimited per R 76-1 Table 3)
   const zones: Record<string, [number, number]> = {
-    I: [50000, 200000],
+    I: [50000, Infinity],
     II: [5000, 20000],
     III: [500, 2000],
     IIII: [50, 200],
@@ -195,32 +199,47 @@ function getWeighingPerformanceDemo(min: number, max: number, e: number, d: numb
     if (err === 0) err = randError(mpe, d, dp);
     return err;
   };
+  // Generate the increasing error first; the decreasing error at the same
+  // load must stay within MPE of BOTH zero (per-point check) and the
+  // increasing error (hysteresis check: |err_inc − err_dec| ≤ MPE).
+  const incErrors = loads.map((load) => errorFor(load));
+  const decErrorFor = (load: number, errInc: number) => {
+    const mpe = mpeOf(load);
+    if (!shouldPass) return randFailError(mpe, d, dp);
+    return r(errInc + randError(mpe - Math.abs(errInc), d, dp), dp);
+  };
   const rows = [
     ...loads.map((load, i) => ({
       key: i + 1,
       direction: 'increasing' as const,
       test_point_load: String(load),
-      indicated_value: String(r(load + errorFor(load), dp)),
+      indicated_value: String(r(load + incErrors[i], dp)),
       correction: '0',
     })),
-    ...[...loads].reverse().map((load, i) => ({
-      key: loads.length + i + 1,
-      direction: 'decreasing' as const,
-      test_point_load: String(load),
-      indicated_value: String(r(load + errorFor(load), dp)),
-      correction: '0',
-    })),
+    ...[...loads].reverse().map((load, i) => {
+      const incIdx = loads.length - 1 - i;
+      return {
+        key: loads.length + i + 1,
+        direction: 'decreasing' as const,
+        test_point_load: String(load),
+        indicated_value: String(r(load + decErrorFor(load, incErrors[incIdx]), dp)),
+        correction: '0',
+      };
+    }),
   ];
   return rows;
 }
 
 function getEccentricityDemo(testLoad: number, e: number, d: number, dp: number, cls: string, shouldPass: boolean) {
+  // Criterion (R 76-1 A.4.7): each position's indication error vs the
+  // APPLIED LOAD must be within the MPE — center included.
   const mpe = mpeFactorFor(cls, testLoad / e) * e;
   const err = () => (shouldPass ? randError(mpe, d, dp) : randFailError(mpe, d, dp));
   return {
     testLoad: String(testLoad),
     readings: {
-      center: String(testLoad),
+      // Center carries a small compliant error too (not an exact reading)
+      center: String(r(testLoad + randError(mpe, d, dp), dp)),
       front_left:  String(r(testLoad + err(), dp)),
       front_right: String(r(testLoad + err(), dp)),
       rear_left:   String(r(testLoad + err(), dp)),
@@ -253,10 +272,20 @@ function getDiscriminationDemo(min: number, halfMax: number, max: number, d: num
   ];
 }
 
-function getSensitivityDemo(max: number, d: number, _e: number, dp: number, shouldPass: boolean) {
+function getSensitivityDemo(max: number, d: number, e: number, dp: number, cls: string, shouldPass: boolean) {
+  // Criterion: the indication change on adding the extra load must be at
+  // least 0.4 × MPE at the test load (MPE at zero = 0.5e).
+  const changeFor = (load: number) => {
+    const mpe = mpeFactorFor(cls, load / e) * e;
+    const needed = 0.4 * mpe;
+    const k = Math.max(1, Math.ceil((needed - 1e-9) / d));
+    return r(k * d, dp);
+  };
+  const changeZero = changeFor(0);
+  const changeMax = changeFor(max);
   return [
-    { key: 'zero', loadBefore: '0',          loadAfter: String(r(d, dp)),  before: '0',          after: String(shouldPass ? r(d, dp) : '0') },
-    { key: 'max',  loadBefore: String(max), loadAfter: String(max),        before: String(max), after: String(shouldPass ? r(max + d, dp) : String(max)) },
+    { key: 'zero', loadBefore: '0',          loadAfter: String(changeZero), before: '0',          after: String(shouldPass ? changeZero : '0') },
+    { key: 'max',  loadBefore: String(max), loadAfter: String(max),         before: String(max), after: String(shouldPass ? r(max + changeMax, dp) : String(max)) },
   ];
 }
 
@@ -322,6 +351,31 @@ function getSpanStabilityDemo(
     { load: String(max), indicated: String(reading()), correction: '0' },
     { load: String(max), indicated: String(reading()), correction: '0' },
   ];
+}
+
+function getTemperatureDemo(
+  loads: number[],
+  e: number,
+  d: number,
+  dp: number,
+  cls: string,
+  shouldPass: boolean,
+): { load: string; indicated: string; correction: string; temperature_c: string }[] {
+  // Readings at the temperature extremes for each load. Pass-mode keeps the
+  // per-reading error within MPE AND the drift between extremes ≤ 0.5e —
+  // well inside the R 76-1 limit of 1e per 5 °C (2e over this 10 °C span).
+  const temps = ['20.0', '30.0'];
+  const rows: { load: string; indicated: string; correction: string; temperature_c: string }[] = [];
+  for (const load of loads) {
+    const mpe = mpeFactorFor(cls, load / e) * e;
+    const errLow = shouldPass ? randError(mpe, d, dp) : randFailError(mpe, d, dp);
+    const errHigh = shouldPass
+      ? r(errLow + randError(Math.min(0.5 * e, mpe - Math.abs(errLow)), d, dp), dp)
+      : randFailError(mpe, d, dp);
+    rows.push({ load: String(load), indicated: String(r(load + errLow, dp)), correction: '0', temperature_c: temps[0] });
+    rows.push({ load: String(load), indicated: String(r(load + errHigh, dp)), correction: '0', temperature_c: temps[1] });
+  }
+  return rows;
 }
 
 function getStandardDemo(
@@ -438,8 +492,18 @@ export function buildAllObservations(inst: InstrumentInfo | undefined, shouldPas
   obs.push({ test_type: 'zero_tracking', test_point_load: '0', indicated_value: zt.before, correction: '0', trial_number: 1, direction: 'increasing' });
   obs.push({ test_type: 'zero_tracking', test_point_load: '0', indicated_value: zt.after, correction: '0', trial_number: 2, direction: 'decreasing' });
 
+  demo.temperature.forEach((row, i) => {
+    obs.push({
+      test_type: 'temperature',
+      test_point_load: row.load,
+      indicated_value: row.indicated,
+      correction: row.correction,
+      temperature_c: row.temperature_c,
+      trial_number: i + 1,
+    });
+  });
+
   const stdTests: Array<{ key: string; data: { load: string; indicated: string; correction: string }[] }> = [
-    { key: 'temperature', data: demo.temperature },
     { key: 'tilt', data: demo.tilt },
     { key: 'power_supply', data: demo.power_supply },
     { key: 'durability', data: demo.durability },

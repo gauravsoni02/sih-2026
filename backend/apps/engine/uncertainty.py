@@ -36,16 +36,29 @@ def compute_uncertainty_budget(
     mpe: Decimal,
     rep_std_dev: Decimal = Decimal('0'),
     k: Decimal = K_DEFAULT,
+    u_ref_override: Decimal | None = None,
 ) -> dict:
     """Build the uncertainty budget for one test point.
 
     Returns a dict with each component, the combined standard uncertainty,
     and the expanded uncertainty U = k * u_c.
+
+    Reference-weight component (u_reference_weights):
+    when ``u_ref_override`` is provided it is used directly — this should be
+    the standard uncertainty taken from the reference weights' calibration
+    certificate (certificate U divided by its coverage factor), which is the
+    metrologically correct source. When it is None, the legal-metrology
+    fallback applies: the maximum permissible error of the standards is
+    assumed to be no worse than 1/3 of the instrument MPE (OIML R 76-1,
+    3.7.1) and is treated as a rectangular distribution, giving
+    (MPE/3)/sqrt(3). This fallback is an assumption of the standards'
+    conformity class, not their actual calibration data, and should only be
+    relied on when the calibration certificate uncertainty is unavailable.
     """
     u_rep = rep_std_dev
     u_res_zero = d / (2 * SQRT3)
     u_res_load = d / (2 * SQRT3)
-    u_ref = (mpe / 3) / SQRT3
+    u_ref = u_ref_override if u_ref_override is not None else (mpe / 3) / SQRT3
 
     u_combined = (
         u_rep ** 2 + u_res_zero ** 2 + u_res_load ** 2 + u_ref ** 2

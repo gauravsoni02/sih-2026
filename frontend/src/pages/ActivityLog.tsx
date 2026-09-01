@@ -12,13 +12,15 @@ const ACTION_COLORS: Record<string, string> = {
   Deleted: '#cf1322',
 };
 
-const SEVERITY_MAP: Record<string, { label: string; color: string }> = {
+// "Impact" is derived client-side from the action type — it is a reading aid,
+// not security telemetry.
+const IMPACT_MAP: Record<string, { label: string; color: string }> = {
   info: { label: 'Info', color: '#1677ff' },
   warning: { label: 'Warning', color: '#d97706' },
   critical: { label: 'Critical', color: '#cf1322' },
 };
 
-function getSeverity(entry: AuditLogEntry): string {
+function getImpact(entry: AuditLogEntry): string {
   if (entry.action === 'Deleted') return 'critical';
   if (entry.action === 'Updated') return 'warning';
   return 'info';
@@ -26,7 +28,7 @@ function getSeverity(entry: AuditLogEntry): string {
 
 export default function ActivityLog() {
   const [search, setSearch] = useState('');
-  const [severityFilter, setSeverityFilter] = useState<string>('all');
+  const [impactFilter, setImpactFilter] = useState<string>('all');
 
   const { data: auditLog, isLoading } = useQuery({
     queryKey: ['audit-log-full'],
@@ -34,8 +36,8 @@ export default function ActivityLog() {
   });
 
   const filtered = (auditLog ?? []).filter((entry) => {
-    const severity = getSeverity(entry);
-    if (severityFilter !== 'all' && severity !== severityFilter) return false;
+    const impact = getImpact(entry);
+    if (impactFilter !== 'all' && impact !== impactFilter) return false;
 
     if (search) {
       const q = search.toLowerCase();
@@ -64,12 +66,12 @@ export default function ActivityLog() {
       ),
     },
     {
-      title: 'Severity',
-      key: 'severity',
+      title: 'Impact',
+      key: 'impact',
       width: 90,
       render: (_: unknown, record: AuditLogEntry) => {
-        const severity = getSeverity(record);
-        const info = SEVERITY_MAP[severity];
+        const impact = getImpact(record);
+        const info = IMPACT_MAP[impact];
         return (
           <span style={{
             fontSize: 12,
@@ -127,11 +129,11 @@ export default function ActivityLog() {
           style={{ maxWidth: 400 }}
         />
         <Select
-          value={severityFilter}
-          onChange={setSeverityFilter}
-          style={{ width: 140 }}
+          value={impactFilter}
+          onChange={setImpactFilter}
+          style={{ width: 160 }}
           options={[
-            { value: 'all', label: 'All severities' },
+            { value: 'all', label: 'All impact levels' },
             { value: 'info', label: 'Info' },
             { value: 'warning', label: 'Warning' },
             { value: 'critical', label: 'Critical' },
@@ -146,6 +148,7 @@ export default function ActivityLog() {
         size="small"
         pagination={{ pageSize: 50, showSizeChanger: false, simple: true }}
         bordered={false}
+        scroll={{ x: 'max-content' }}
         rowClassName={(_, i) => (i % 2 === 1 ? 'alt-row' : '')}
       />
     </div>

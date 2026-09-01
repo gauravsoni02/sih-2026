@@ -31,7 +31,7 @@ export default function Sidebar() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
-  const { sidebarCollapsed, setSidebarCollapsed } = useUiStore();
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
 
   // Prefer an exact route match so /reports/search selects Search rather than Reports.
   const selectedKey = menuItems.find((item) => item.key === location.pathname)?.key
@@ -41,7 +41,8 @@ export default function Sidebar() {
     ?? '/';
 
   return (
-    <div
+    <nav
+      aria-label="Main navigation"
       style={{
         width: sidebarCollapsed ? 56 : 200,
         height: '100vh',
@@ -55,8 +56,6 @@ export default function Sidebar() {
         background: '#fff',
         zIndex: 100,
       }}
-      onMouseEnter={() => setSidebarCollapsed(false)}
-      onMouseLeave={() => setSidebarCollapsed(true)}
     >
       <div style={{
         height: 48,
@@ -98,6 +97,6 @@ export default function Sidebar() {
         ]}
         style={{ border: 'none', borderTop: '1px solid #e8e8e8' }}
       />
-    </div>
+    </nav>
   );
 }

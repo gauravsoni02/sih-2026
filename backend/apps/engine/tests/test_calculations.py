@@ -10,6 +10,7 @@ from apps.engine.calculations import (
     evaluate_discrimination,
     evaluate_eccentricity,
     evaluate_repeatability,
+    evaluate_sensitivity,
     evaluate_temperature_zero_drift,
     evaluate_zero_return,
     is_discrimination_applicable,
@@ -69,7 +70,11 @@ class TestErrorComputation(TestCase):
 
 
 class TestEccentricity(TestCase):
-    """Tests 12-16: Eccentricity tests."""
+    """Tests 12-16: Eccentricity tests.
+
+    Per R 76-1 A.4.7 each position's error is referenced to the APPLIED
+    LOAD (not the center reading), so a span bias cannot cancel out.
+    """
 
     # Test 12: Test load with T+ > 0
     def test_eccentricity_load_with_tare(self) -> None:
@@ -85,9 +90,10 @@ class TestEccentricity(TestCase):
         load = compute_eccentricity_test_load(Decimal('15000'))
         self.assertEqual(load, Decimal('5000'))
 
-    # Test 14: Identical readings -> 0 error, PASS
+    # Test 14: Readings equal to the applied load -> 0 error, PASS
     def test_eccentricity_identical_readings(self) -> None:
         readings = {
+            'center': Decimal('5000'),
             'front_left': Decimal('5000'),
             'front_right': Decimal('5000'),
             'rear_left': Decimal('5000'),
@@ -98,7 +104,7 @@ class TestEccentricity(TestCase):
         for err in errors.values():
             self.assertEqual(err, Decimal('0'))
 
-    # Test 15: Difference > MPE -> FAIL
+    # Test 15: Error vs applied load > MPE -> FAIL
     def test_eccentricity_over_mpe(self) -> None:
         mpe = Decimal('1.5')
         readings = {
@@ -111,7 +117,7 @@ class TestEccentricity(TestCase):
         self.assertEqual(status, ComplianceStatus.FAIL)
         self.assertEqual(errors['front_left'], Decimal('2'))
 
-    # Test 16: Difference exactly at MPE -> PASS
+    # Test 16: Error exactly at MPE -> PASS
     def test_eccentricity_at_mpe(self) -> None:
         mpe = Decimal('1.5')
         readings = {
@@ -122,6 +128,38 @@ class TestEccentricity(TestCase):
         }
         errors, status = evaluate_eccentricity(readings, Decimal('5000'), mpe)
         self.assertEqual(status, ComplianceStatus.PASS)
+
+    def test_eccentricity_span_bias_not_cancelled(self) -> None:
+        # All positions read 2 units high, including center. Under the old
+        # (wrong) center-referenced criterion these would all "pass"; under
+        # the load-referenced criterion every position fails when MPE < 2.
+        mpe = Decimal('1.5')
+        readings = {
+            'center': Decimal('5002'),
+            'front_left': Decimal('5002'),
+            'front_right': Decimal('5002'),
+            'rear_left': Decimal('5002'),
+            'rear_right': Decimal('5002'),
+        }
+        errors, status = evaluate_eccentricity(readings, Decimal('5000'), mpe)
+        self.assertEqual(status, ComplianceStatus.FAIL)
+        for err in errors.values():
+            self.assertEqual(err, Decimal('2'))
+
+    def test_eccentricity_center_error_counts(self) -> None:
+        # A center reading out of tolerance fails the test even when the
+        # corner readings are compliant.
+        mpe = Decimal('1.5')
+        readings = {
+            'center': Decimal('5002'),
+            'front_left': Decimal('5000'),
+            'front_right': Decimal('5000'),
+            'rear_left': Decimal('5000'),
+            'rear_right': Decimal('5000'),
+        }
+        errors, status = evaluate_eccentricity(readings, Decimal('5000'), mpe)
+        self.assertEqual(status, ComplianceStatus.FAIL)
+        self.assertEqual(errors['center'], Decimal('2'))
 
 
 class TestRepeatability(TestCase):
@@ -220,6 +258,50 @@ class TestCreep(TestCase):
         )
         # drift_total = 0.4 <= 0.5 OK
         # drift_15_30 = 0.3 > 0.2 FAIL
+        self.assertEqual(status, ComplianceStatus.FAIL)
+
+
+class TestSensitivity(TestCase):
+    """Sensitivity: indication change must be at least 0.4 x MPE."""
+
+    def test_change_at_exactly_04_mpe_passes(self) -> None:
+        # MPE = 10 -> required change = 4
+        change, status = evaluate_sensitivity(
+            Decimal('0'), Decimal('4'), Decimal('10')
+        )
+        self.assertEqual(change, Decimal('4'))
+        self.assertEqual(status, ComplianceStatus.PASS)
+
+    def test_change_below_04_mpe_fails(self) -> None:
+        change, status = evaluate_sensitivity(
+            Decimal('0'), Decimal('3.9'), Decimal('10')
+        )
+        self.assertEqual(status, ComplianceStatus.FAIL)
+
+    def test_nonzero_but_insufficient_change_fails(self) -> None:
+        # The old criterion passed on ANY non-zero movement; the correct
+        # one requires 0.4 x MPE. Change of 1 unit vs MPE 10 must fail.
+        change, status = evaluate_sensitivity(
+            Decimal('1000'), Decimal('1001'), Decimal('10')
+        )
+        self.assertEqual(change, Decimal('1'))
+        self.assertEqual(status, ComplianceStatus.FAIL)
+
+    def test_change_above_04_mpe_passes(self) -> None:
+        change, status = evaluate_sensitivity(
+            Decimal('1000'), Decimal('1005'), Decimal('10')
+        )
+        self.assertEqual(status, ComplianceStatus.PASS)
+
+    def test_zero_load_min_zone_mpe(self) -> None:
+        # At zero load MPE = 0.5e; with e = 1 -> required change = 0.2
+        change, status = evaluate_sensitivity(
+            Decimal('0'), Decimal('0.2'), Decimal('0.5')
+        )
+        self.assertEqual(status, ComplianceStatus.PASS)
+        change, status = evaluate_sensitivity(
+            Decimal('0'), Decimal('0.1'), Decimal('0.5')
+        )
         self.assertEqual(status, ComplianceStatus.FAIL)
 
 

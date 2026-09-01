@@ -6,6 +6,7 @@ export interface OrgSettings {
   doc_control_number: string;
   doc_issue_number: string;
   doc_rev_number: string;
+  doc_issue_date: string;
   default_remarks: string[];
   logo_data_uri: string;
   updated_at?: string;
