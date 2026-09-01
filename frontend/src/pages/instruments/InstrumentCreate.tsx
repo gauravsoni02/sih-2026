@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, InputNumber, Select, Switch, Button, Modal } from 'antd';
-import { createInstrument } from '@/api/instruments';
+import { createInstrument, fetchInstrument, updateInstrument } from '@/api/instruments';
 import PageHeader from '@/components/common/PageHeader';
 import { DEMO_INSTRUMENTS } from '@/utils/demoData';
 import { loadPrefs } from '@/utils/prefs';
@@ -10,16 +10,30 @@ import type { InstrumentCreatePayload } from '@/types/instrument';
 
 export default function InstrumentCreate() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const editId = id ? parseInt(id, 10) : null;
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [error, setError] = useState('');
   const [demoModalOpen, setDemoModalOpen] = useState(false);
   const isMultiInterval = Form.useWatch('is_multi_interval', form);
 
+  const { data: existing } = useQuery({
+    queryKey: ['instrument', editId],
+    queryFn: () => fetchInstrument(editId!),
+    enabled: editId != null,
+  });
+
+  useEffect(() => {
+    if (existing) form.setFieldsValue(existing);
+  }, [existing, form]);
+
   const mutation = useMutation({
-    mutationFn: createInstrument,
+    mutationFn: (payload: InstrumentCreatePayload) =>
+      editId != null ? updateInstrument(editId, payload) : createInstrument(payload),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instruments'] });
+      queryClient.invalidateQueries({ queryKey: ['instrument', editId] });
       navigate(`/instruments/${data.id}`);
     },
     onError: (err: unknown) => {
@@ -28,7 +42,7 @@ export default function InstrumentCreate() {
         const first = Object.entries(msg).map(([k, v]) => `${k}: ${Array.isArray(v) ? v[0] : v}`).join('; ');
         setError(first);
       } else {
-        setError('Failed to create instrument');
+        setError(editId != null ? 'Failed to update instrument' : 'Failed to create instrument');
       }
     },
   });
@@ -75,11 +89,13 @@ export default function InstrumentCreate() {
       </Modal>
 
       <PageHeader
-        title="Register instrument"
+        title={editId != null ? 'Edit instrument' : 'Register instrument'}
         extra={
-          <Button onClick={() => setDemoModalOpen(true)}>
-            Load demo data
-          </Button>
+          editId == null && (
+            <Button onClick={() => setDemoModalOpen(true)}>
+              Load demo data
+            </Button>
+          )
         }
       />
       <div style={{ maxWidth: 560 }}>
@@ -195,7 +211,7 @@ export default function InstrumentCreate() {
 
           <Form.Item style={{ marginTop: 24, textAlign: 'right' }}>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
-              Register instrument
+              {editId != null ? 'Save changes' : 'Register instrument'}
             </Button>
           </Form.Item>
         </Form>

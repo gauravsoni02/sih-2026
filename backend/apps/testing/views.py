@@ -15,6 +15,8 @@ from apps.engine.calculations import (
     evaluate_discrimination,
     evaluate_eccentricity,
     evaluate_repeatability,
+    evaluate_sensitivity,
+    evaluate_zero_return,
     is_discrimination_applicable,
 )
 from apps.engine.compliance import overall_verdict
@@ -385,7 +387,116 @@ def _calculate_test_type(
                         compliance_status=creep_status,
                     ))
 
+    elif test_type == TestType.SENSITIVITY:
+        # Before/after pairs share a trial_number; the form marks "before"
+        # as direction=increasing and "after" as direction=decreasing.
+        # Criterion: adding 1d extra load must perceptibly change the
+        # indication (R 76-1 sensitivity requirement).
+        pairs: dict[int, dict[str, TestObservation]] = {}
+        for obs in observations:
+            pairs.setdefault(obs.trial_number, {})[obs.direction or ''] = obs
+        for trial, pair in sorted(pairs.items()):
+            before = pair.get('increasing')
+            after = pair.get('decreasing')
+            if not before or not after:
+                continue
+            change, sens_status = evaluate_sensitivity(
+                before.indicated_value or Decimal('0'),
+                after.indicated_value or Decimal('0'),
+                Decimal('0'),
+            )
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=after,
+                test_point_load=before.test_point_load,
+                computed_error=change, trial_number=trial,
+                compliance_status=sens_status,
+                remarks='Indication change on adding 1d extra load',
+            ))
+
+    elif test_type == TestType.ZERO_TRACKING:
+        # Zero reading before vs after must agree within 0.5e (zero return).
+        e = instrument.verification_scale_interval_e
+        before = observations.filter(direction='increasing').first()
+        after = observations.filter(direction='decreasing').first()
+        if before and after:
+            deviation, zt_status = evaluate_zero_return(
+                (after.indicated_value or Decimal('0'))
+                - (before.indicated_value or Decimal('0')),
+                e,
+            )
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=after,
+                test_point_load=Decimal('0'), computed_error=deviation,
+                mpe_applicable=Decimal('0.5') * e,
+                compliance_status=zt_status,
+                remarks='Zero deviation after zero-tracking cycle',
+            ))
+
+    elif test_type == TestType.TARE:
+        # A tared display indicates the net load directly; the tare value is
+        # carried in `correction` for the record but is not part of the
+        # error, and MPE applies at the net load (R 76-1, 4.6.2).
+        for obs in observations:
+            net = obs.test_point_load or Decimal('0')
+            try:
+                mpe = _get_mpe_for_instrument(instrument, net, verification_type)
+            except ValueError:
+                results.append(TestResult(
+                    session=session, test_type=test_type, observation=obs,
+                    test_point_load=net, computed_error=Decimal('0'),
+                    compliance_status=ComplianceStatus.FAIL,
+                    remarks=f'Net load {net} out of range for class {instrument.accuracy_class}',
+                    trial_number=obs.trial_number,
+                ))
+                continue
+            error = (obs.indicated_value or Decimal('0')) - net
+            results.append(TestResult(
+                session=session, test_type=test_type, observation=obs,
+                test_point_load=net, computed_error=error,
+                mpe_applicable=mpe,
+                compliance_status=check_error_compliance(error, mpe),
+                trial_number=obs.trial_number,
+                remarks=f'Tare load {obs.correction}',
+            ))
+
+    elif test_type == TestType.SPAN_STABILITY:
+        # Stability of the span over repeated measurements: the spread of
+        # the readings at each load must stay within the MPE.
+        load_groups = {}
+        for obs in observations:
+            load_groups.setdefault(obs.test_point_load, []).append(obs)
+        for load, obs_list in load_groups.items():
+            readings = [o.indicated_value or Decimal('0') for o in obs_list]
+            try:
+                mpe = _get_mpe_for_instrument(instrument, load, verification_type)
+            except ValueError:
+                for obs in obs_list:
+                    results.append(TestResult(
+                        session=session, test_type=test_type, observation=obs,
+                        test_point_load=load, computed_error=Decimal('0'),
+                        compliance_status=ComplianceStatus.FAIL,
+                        remarks=f'Load {load} out of range for class {instrument.accuracy_class}',
+                        trial_number=obs.trial_number,
+                    ))
+                continue
+            spread = max(readings) - min(readings)
+            span_status = (
+                ComplianceStatus.PASS if spread <= abs(mpe)
+                else ComplianceStatus.FAIL
+            )
+            for obs in obs_list:
+                results.append(TestResult(
+                    session=session, test_type=test_type, observation=obs,
+                    test_point_load=load, computed_error=spread,
+                    mpe_applicable=mpe, compliance_status=span_status,
+                    trial_number=obs.trial_number,
+                    remarks='Span variation across measurements',
+                ))
+
     else:
+        # Temperature, tilt, power supply and durability: R 76-1 requires
+        # the indication error to stay within the MPE under the disturbance,
+        # which is exactly this generic evaluation.
         for obs in observations:
             load = obs.test_point_load or Decimal('0')
             try:

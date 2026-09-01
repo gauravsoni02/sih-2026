@@ -64,6 +64,7 @@ export default function App() {
               <Route path="/instruments" element={<InstrumentList />} />
               <Route path="/instruments/new" element={<InstrumentCreate />} />
               <Route path="/instruments/:id" element={<InstrumentDetail />} />
+              <Route path="/instruments/:id/edit" element={<InstrumentCreate />} />
               <Route path="/sessions" element={<SessionList />} />
               <Route path="/sessions/new" element={<SessionCreate />} />
               <Route path="/sessions/:id" element={<SessionDetail />} />

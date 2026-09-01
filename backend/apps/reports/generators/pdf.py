@@ -5,14 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
-from django.template.loader import render_to_string
 
 from apps.engine.constants import ComplianceStatus, TestType
 from apps.reports.generators import _build_report_context, build_uncertainty_budget
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE_NAME = 'report_base.html'
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
@@ -77,17 +75,7 @@ def generate_pdf(report) -> str:
     filename = f"{report.report_number.replace('/', '_')}_v{report.version}.pdf"
     filepath = storage_dir / filename
 
-    try:
-        _generate_pdf_reportlab(context=context, filepath=str(filepath))
-    except Exception:
-        logger.exception("ReportLab PDF generation failed -- attempting WeasyPrint fallback")
-        try:
-            from weasyprint import HTML
-            html_string = render_to_string(TEMPLATE_NAME, context)
-            HTML(string=html_string).write_pdf(str(filepath))
-        except (ImportError, OSError):
-            logger.exception("WeasyPrint fallback also failed")
-            raise
+    _generate_pdf_reportlab(context=context, filepath=str(filepath))
 
     logger.info("PDF generated: %s", filepath)
     return str(filepath)

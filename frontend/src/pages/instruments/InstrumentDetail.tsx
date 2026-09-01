@@ -64,6 +64,9 @@ export default function InstrumentDetail() {
             <Button type="primary" onClick={() => navigate('/sessions/new', { state: { instrumentId: instrument.id } })}>
               New test session
             </Button>
+            <Button onClick={() => navigate(`/instruments/${instrument.id}/edit`)}>
+              Edit
+            </Button>
             <Button danger onClick={handleDelete} loading={deleteMutation.isPending}>
               Delete
             </Button>
@@ -76,7 +79,6 @@ export default function InstrumentDetail() {
         <Field label="Manufacturer" value={instrument.manufacturer} />
         <Field label="Model" value={instrument.model_name} />
         <Field label="Serial number" value={instrument.serial_number} />
-        <Field label="Status" value={undefined} />
         <div style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
           <div style={{ width: 240, color: '#666666', fontSize: 14, flexShrink: 0 }}>Status</div>
           <StatusTag status={instrument.status} />

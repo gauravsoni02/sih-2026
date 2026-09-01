@@ -146,7 +146,7 @@ export function getDemoObservations(inst: InstrumentInfo | undefined, shouldPass
     tilt: getStandardDemo([halfMax, max], e, dp, shouldPass),
     power_supply: getStandardDemo([halfMax, max], e, dp, shouldPass),
     durability: getStandardDemo([halfMax, max], e, dp, shouldPass),
-    span_stability: getStandardDemo([r(max * 0.9, dp), max], e, dp, shouldPass),
+    span_stability: getSpanStabilityDemo(max, e, dp, shouldPass),
   };
 }
 
@@ -222,9 +222,10 @@ function getTareDemo(max: number, e: number, dp: number, shouldPass: boolean) {
   const net2  = r(max * 0.5, dp);
   const small = r(e * 0.1, dp);
   const big   = r(e * 3, dp);
+  // A tared display indicates the net load directly
   return [
-    { tare: String(tare1), net: String(net1), indicated: String(r(net1 + tare1 + (shouldPass ? small : big), dp)) },
-    { tare: String(tare2), net: String(net2), indicated: String(r(net2 + tare2 + (shouldPass ? 0 : big), dp)) },
+    { tare: String(tare1), net: String(net1), indicated: String(r(net1 + (shouldPass ? small : big), dp)) },
+    { tare: String(tare2), net: String(net2), indicated: String(r(net2 + (shouldPass ? 0 : big), dp)) },
   ];
 }
 
@@ -242,6 +243,21 @@ function getZeroTrackingDemo(e: number, dp: number, shouldPass: boolean) {
     before: '0',
     after: String(shouldPass ? r(e * 0.1, dp) : r(e * 3, dp)),
   };
+}
+
+function getSpanStabilityDemo(
+  max: number,
+  e: number,
+  dp: number,
+  shouldPass: boolean,
+): { load: string; indicated: string; correction: string }[] {
+  // Repeated measurements at Max; the spread between them is what matters
+  const drift = shouldPass ? r(e * 0.1, dp) : r(e * 3, dp);
+  return [
+    { load: String(max), indicated: String(max), correction: '0' },
+    { load: String(max), indicated: String(r(max + drift, dp)), correction: '0' },
+    { load: String(max), indicated: String(max), correction: '0' },
+  ];
 }
 
 function getStandardDemo(
