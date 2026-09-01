@@ -48,9 +48,12 @@ export default function Login() {
       background: '#ffffff',
     }}>
       <div style={{ width: 320 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: '#1a1a1a', marginBottom: 32, textAlign: 'center' }}>
-          NAWI Test Report Generator
-        </h1>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <img src="/logo.png" alt="76 Labs" style={{ height: 64, marginBottom: 12 }} />
+          <h1 style={{ fontSize: 16, fontWeight: 500, color: '#666666', margin: 0 }}>
+            NAWI Test Report Generator
+          </h1>
+        </div>
         <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
           <Form.Item
             label="Username"

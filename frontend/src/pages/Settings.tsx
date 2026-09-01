@@ -403,7 +403,7 @@ function AboutTab() {
       <SectionHeader title="About" description="Application information" />
       <div style={{ maxWidth: 400 }}>
         {[
-          ['Application', 'NAWI Test Report Generator'],
+          ['Application', '76 Labs — NAWI Test Report Generator'],
           ['Version', __APP_VERSION__],
           ['Standard', 'OIML R 76-1:2006'],
           ['Tech stack', 'Django + React + TypeScript'],

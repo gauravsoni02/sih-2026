@@ -69,7 +69,11 @@ export default function Sidebar() {
         overflow: 'hidden',
         whiteSpace: 'nowrap',
       }}>
-        {sidebarCollapsed ? 'N' : 'NAWI'}
+        {sidebarCollapsed ? (
+          <img src="/logo.png" alt="76 Labs" style={{ height: 28 }} />
+        ) : (
+          <img src="/logo.png" alt="76 Labs" style={{ height: 32 }} />
+        )}
       </div>
       <Menu
         mode="inline"
